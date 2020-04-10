@@ -39,7 +39,13 @@ public class MyProtocol{
                 read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
                 System.out.println(read-1);
                 if(read > 0){
-                    ByteBuffer toSend = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
+                    ByteBuffer toSend;
+                    if(read >2) {
+                        toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+                    }
+                    else{
+                        toSend = ByteBuffer.allocate(2);
+                    }
                     toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){

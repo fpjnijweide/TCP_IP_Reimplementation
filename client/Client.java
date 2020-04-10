@@ -124,7 +124,7 @@ public class Client {
         private boolean shortData = false;
 
         private void parseMessage( ByteBuffer received, int bytesReceived ){
-            // printByteBuffer(received, bytesReceived);
+            printByteBuffer(received, bytesReceived);
 
             try {
                 for( int offset=0; offset < bytesReceived; offset++ ){
@@ -189,11 +189,11 @@ public class Client {
         }
 
         public void printByteBuffer(ByteBuffer bytes, int bytesLength){
-            System.out.print("DATA: ");
-            for(int i=0; i<bytesLength; i++){
-                System.out.print( Byte.toString( bytes.get(i) )+" " );
-            }
-            System.out.println();
+          //  System.out.print("DATA (amount of bytes) in buffer: ");
+          //  for(int i=0; i<bytesLength; i++){
+          //      System.out.print( Byte.toString( bytes.get(i) )+" " );
+          //  }
+          //  System.out.println();
         }
 
         public void receivingLoop(){
