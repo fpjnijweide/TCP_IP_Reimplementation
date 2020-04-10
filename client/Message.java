@@ -22,4 +22,5 @@ public class Message {
     public ByteBuffer getData(){
         return data;
     }
+    //public ByteBuffer fillData(int pos){data.put(pos,)}
 }

@@ -8,6 +8,8 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import static java.nio.ByteBuffer.allocate;
+
 
 public class Client {
     
@@ -64,7 +66,7 @@ public class Client {
                         ByteBuffer data = msg.getData();
                         data.position(0); //reset position just to be sure
                         int length = data.capacity(); //assume capacity is also what we want to send here!
-                        ByteBuffer toSend = ByteBuffer.allocate(length+2);
+                        ByteBuffer toSend = allocate(length+2);
                         if( msg.getType() == MessageType.DATA ){
                             toSend.put((byte) 3);
                         } else { // must be DATA_SHORT due to check above
@@ -73,7 +75,8 @@ public class Client {
                         toSend.put((byte) length);
                         toSend.put(data);
                         toSend.position(0);
-                        // System.out.println("Sending "+Integer.toString(length)+" bytes!");
+                        System.out.println("Sending "+Integer.toString(length)+" bytes!");
+
                         sock.write(toSend);
                     }                    
                 } catch(IOException e) {
@@ -85,7 +88,7 @@ public class Client {
         }
 
         public void sendConnect(int frequency){
-            ByteBuffer buff = ByteBuffer.allocate(4);
+            ByteBuffer buff = allocate(4);
             buff.put((byte) 9);
             buff.put((byte) ((frequency >> 16)&0xff));
             buff.put((byte) ((frequency >> 8)&0xff));
@@ -115,7 +118,7 @@ public class Client {
             this.sock = sock;      
         }
 
-        private ByteBuffer messageBuffer = ByteBuffer.allocate(1024);
+        private ByteBuffer messageBuffer = allocate(1024);
         private int messageLength = -1;
         private boolean messageReceiving = false;
         private boolean shortData = false;
@@ -130,7 +133,7 @@ public class Client {
                     if( messageReceiving ){
                         if (messageLength == -1) {
                             messageLength = (int) d;
-                            messageBuffer = ByteBuffer.allocate(messageLength);
+                            messageBuffer = allocate(messageLength);
                         } else {
                             messageBuffer.put( d );
                         }
@@ -139,7 +142,7 @@ public class Client {
                             // printByteBuffer(messageBuffer, messageLength);
                             // System.out.println("pos: "+Integer.toString(messageBuffer.position()) );
                             messageBuffer.position(0);
-                            ByteBuffer temp = ByteBuffer.allocate(messageLength);
+                            ByteBuffer temp = allocate(messageLength);
                             temp.put(messageBuffer);
                             temp.rewind();
                             if( shortData ){
@@ -195,7 +198,7 @@ public class Client {
 
         public void receivingLoop(){
             int bytesRead = 0;
-            ByteBuffer recv = ByteBuffer.allocate(1024);
+            ByteBuffer recv = allocate(1024);
             try{
                 while( sock.isConnected() ){
                     bytesRead = sock.read(recv);
