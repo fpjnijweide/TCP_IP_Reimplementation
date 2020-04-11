@@ -38,14 +38,19 @@ public class MyProtocol{
             while(true){
                 read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
                 System.out.println(read-1);
+
                 if(read > 0){
                     ByteBuffer toSend;
                     if(read >2) {
-                        toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+                        toSend = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
+                      //  for(int i = read; i<32; i++){
+                      //      toSend.put()
+                      //  }
                     }
                     else{
                         toSend = ByteBuffer.allocate(2);
                     }
+                  //  for
                     toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){
@@ -61,6 +66,11 @@ public class MyProtocol{
         } catch (IOException e){
             System.exit(2);
         }        
+    }
+    public int[] fillSmallPacket(int sourceIP, int destIP, int seqNum, int ackNum, boolean ackFlag, boolean morePackFlag, byte[] toSend, boolean request, boolean negotiate, boolean SYN ) {
+        int first_byte = sourceIP << 6 | destIP << 4 | (ackFlag ? 1:0) << 3 | (request ? 1:0) << 2 | (negotiate ? 1:0) << 1 | (SYN ? 1:0);
+        int second_byte = (morePackFlag ? 1:0) << 7 | seqNum << 5 | ackNum << 3;
+        return new int[]{first_byte, second_byte};
     }
 
     public static void main(String args[]) {
