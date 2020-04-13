@@ -5,6 +5,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.nio.ByteBuffer;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -100,7 +102,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 5400;
+    private static int frequency = 8400;
     private int exponential_backoff = 1;
 
     public void setState(State state) {
@@ -128,11 +130,6 @@ public class MyProtocol{
 
 
 
-        startDiscoveryPhase(exponential_backoff);
-
-
-
-
         // handle sending from stdin from this thread.
         try{
             ByteBuffer temp = ByteBuffer.allocate(1024);
@@ -146,16 +143,20 @@ public class MyProtocol{
                 } else if(read > 0){
                     ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    for (int i = 0; i < read-1; i+=28) {
-                        byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
-                        System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+                    if (new String(text.array(), StandardCharsets.US_ASCII).equals("DISCOVERY")){
+                        startDiscoveryPhase(exponential_backoff);
+                    } else {
+                        for (int i = 0; i < read-1; i+=28) {
+                            byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
+                            System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
-                        boolean morePacketsFlag = read-1-i>28;
-                        int size = morePacketsFlag? 32 : read-1-i+4;
-                        sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,partial_text,0,morePacketsFlag,size));
+                            boolean morePacketsFlag = read-1-i>28;
+                            int size = morePacketsFlag? 32 : read-1-i+4;
+                            sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,partial_text,0,morePacketsFlag,size));
 
+                        }
                     }
                 }
             }
