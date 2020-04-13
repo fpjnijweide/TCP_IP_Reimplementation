@@ -44,7 +44,6 @@ public class MyProtocol{
         byte[] toSend; // TODO what to do with this
         boolean morePackFlag;
         int seqNum; // 7 bit number, range [0,127]
-        int offset_nr; // 3 bit number, range [0,7]
         int size; // 5 bit number, range [0,32]
 
         public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int offset_nr, int size) {
@@ -52,7 +51,6 @@ public class MyProtocol{
             this.toSend = toSend;
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
-            this.offset_nr = offset_nr;
             this.size = size;
         }
     }
@@ -122,15 +120,16 @@ public class MyProtocol{
     }
 
     public int[] fillSmallPacket(SmallPacket packet) {
-        int first_byte = packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.negotiate ? 1:0) << 1 | (packet.SYN ? 1:0);
-        int second_byte = (packet.broadcast? 1:0) << 7 | packet.ackNum;
+        // TODO aparte negotiation packet structuur
+        int first_byte = packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0);
+        int second_byte = (packet.negotiate? 1:0) << 7 | packet.ackNum;
         return new int[]{first_byte, second_byte};
     }
 
     public int[] fillBigPacket(BigPacket packet) {
         int[] first_two_bytes = fillSmallPacket(packet);
         int third_byte = (packet.morePackFlag?1:0) << 7 | packet.seqNum;
-        int fourth_byte = (packet.offset_nr << 5) | packet.size;
+        int fourth_byte =  packet.size; // three bits left here
         return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest with packet.toSend
     }
 
