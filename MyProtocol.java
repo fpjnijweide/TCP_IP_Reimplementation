@@ -19,14 +19,14 @@ public class MyProtocol{
     }
 
     public class SmallPacket{
-        int sourceIP;
-        int destIP;
-        int ackNum;
+        int sourceIP; // 2 bit number, range [0,3]
+        int destIP; // 2 bit number, range [0,3]
+        int ackNum; // 7 bit number, range [0,127]
         boolean ackFlag;
         boolean request;
         boolean negotiate;
         boolean SYN;
-        public boolean broadcast;
+        boolean broadcast;
 
         public SmallPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast) {
             this.sourceIP = sourceIP;
@@ -42,10 +42,10 @@ public class MyProtocol{
 
     public class BigPacket extends SmallPacket{
         byte[] toSend; // TODO what to do with this
-        int seqNum;
         boolean morePackFlag;
-        public int offset_nr;
-        public int size;
+        int seqNum; // 7 bit number, range [0,127]
+        int offset_nr; // 3 bit number, range [0,7]
+        int size; // 5 bit number, range [0,32]
 
         public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int offset_nr, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
@@ -130,7 +130,7 @@ public class MyProtocol{
     public int[] fillBigPacket(BigPacket packet) {
         int[] first_two_bytes = fillSmallPacket(packet);
         int third_byte = (packet.morePackFlag?1:0) << 7 | packet.seqNum;
-        int fourth_byte = (packet.offset_nr << 3) | packet.size;
+        int fourth_byte = (packet.offset_nr << 5) | packet.size;
         return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest with packet.toSend
     }
 
