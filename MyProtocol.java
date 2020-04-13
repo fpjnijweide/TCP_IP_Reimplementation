@@ -23,31 +23,37 @@ public class MyProtocol{
         int destIP;
         int ackNum;
         boolean ackFlag;
-        boolean morePackFlag;
         boolean request;
         boolean negotiate;
         boolean SYN;
+        public boolean broadcast;
 
-        public SmallPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean morePackFlag, boolean request, boolean negotiate, boolean SYN) {
+        public SmallPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast) {
             this.sourceIP = sourceIP;
             this.destIP = destIP;
             this.ackNum = ackNum;
             this.ackFlag = ackFlag;
-            this.morePackFlag = morePackFlag;
             this.request = request;
             this.negotiate = negotiate;
             this.SYN = SYN;
+            this.broadcast = broadcast;
         }
     }
 
     public class BigPacket extends SmallPacket{
-        byte[] toSend;
+        byte[] toSend; // TODO what to do with this
         int seqNum;
+        boolean morePackFlag;
+        public int offset_nr;
+        public int size;
 
-        public BigPacket(int sourceIP, int destIP, int seqNum, int ackNum, boolean ackFlag, boolean morePackFlag, byte[] toSend, boolean request, boolean negotiate, boolean SYN) {
-            super(sourceIP, destIP, ackNum, ackFlag, morePackFlag, request, negotiate, SYN);
-            this.seqNum = seqNum;
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int offset_nr, int size) {
+            super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.toSend = toSend;
+            this.seqNum = seqNum;
+            this.morePackFlag = morePackFlag;
+            this.offset_nr = offset_nr;
+            this.size = size;
         }
     }
     // The host to connect to. Set this to localhost when using the audio interface tool.
@@ -115,13 +121,20 @@ public class MyProtocol{
         }        
     }
 
-
-    public int[] fillBigPacket(BigPacket packet) {
-        // TODO refactor into smallpacket
+    public int[] fillSmallPacket(SmallPacket packet) {
         int first_byte = packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.negotiate ? 1:0) << 1 | (packet.SYN ? 1:0);
-        int second_byte = (packet.morePackFlag ? 1:0) << 7 | packet.seqNum << 5 | packet.ackNum << 3;
+        int second_byte = (packet.broadcast? 1:0) << 7 | packet.ackNum;
         return new int[]{first_byte, second_byte};
     }
+
+    public int[] fillBigPacket(BigPacket packet) {
+        int[] first_two_bytes = fillSmallPacket(packet);
+        int third_byte = (packet.morePackFlag?1:0) << 7 | packet.seqNum;
+        int fourth_byte = (packet.offset_nr << 3) | packet.size;
+        return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest with packet.toSend
+    }
+
+
 
 
     public static void main(String args[]) {
