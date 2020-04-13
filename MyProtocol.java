@@ -97,7 +97,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 5400;
+    private static int frequency = 8400;
     private State state = State.READY; // todo make negotiating
 
     private BlockingQueue<Message> receivedQueue;
@@ -149,8 +149,18 @@ public class MyProtocol{
                 } else if(read > 0){
                     ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    // TODO actually put temp array met length -1 here
-                    sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,text.array(),0,false,read-1+4));
+                    // TODO split up text into multiple packets if read-1 > 28 (use for loop)
+                    for (int i = 0; i < read-1; i+=28) {
+                        byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i]; // TODO what if it's less than 28
+                        System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+//                        for (int j = 0; j < partial_text.length; j++) {
+//                            partial_text[j] = text.array()[j+i];
+//                        }
+                        boolean morePacketsFlag = read-1-i>28;
+                        int size = morePacketsFlag? 32 : read-1-i+4;
+                        sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,partial_text,0,morePacketsFlag,size));
+
+                    }
                 }
             }
 
@@ -221,9 +231,9 @@ public class MyProtocol{
 
     public BigPacket readBigPacket(byte[] bytes) {
         SmallPacket smallPacket = readSmallPacket(bytes);
-        boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
-        int seqNum = bytes[3] & 0x7F;
-        int size = (bytes[4] & 0x1F) + 1;
+        boolean morePackFlag = ((bytes[2] >> 7) & 0x01)==1;
+        int seqNum = bytes[2] & 0x7F;
+        int size = (bytes[3] & 0x1F) + 1;
         if (size>32){
             System.err.println("Packet size is too big");
         }
@@ -268,8 +278,17 @@ public class MyProtocol{
         }
          new MyProtocol(SERVER_IP, SERVER_PORT, frequency, sourceIP);
     }
-    public void printByteBuffer(byte[] bytes){
-        for (byte aByte : bytes) {
+    public void printByteBuffer(byte[] bytes, boolean buffered){
+        for (int i = 0; i < bytes.length; i++) {
+            if (!buffered && i%28 == 0) {
+                System.out.print("\n");
+                System.out.print("HEADER: ");
+            }
+            if (!buffered && i%28 == 4) {
+                System.out.print("\n");
+                System.out.print("PAYLOAD: ");
+            }
+            byte aByte = bytes[i];
             System.out.print((char) aByte);
         }
         System.out.println();
@@ -326,17 +345,16 @@ public class MyProtocol{
                         System.out.println("FREE");
                         break;
                     case DATA:
-                        System.out.print("DATA: ");
-                        printByteBuffer(bytes); //Just print the data
-
-
+                        System.out.println("DATA");
                         BigPacket packet = readBigPacket(bytes);
 
                         if (packet.morePackFlag || buffer.size() > 0) {
                             byte[] result = appendToBuffer(packet);
                             if (result.length > 0) {
-                                printByteBuffer(result);
+                                printByteBuffer(result, true);
                             }
+                        } else {
+                            printByteBuffer(bytes, false); //Just print the data
                         }
 
                         System.out.println("source IP from this packet is" + packet.sourceIP);
@@ -344,8 +362,8 @@ public class MyProtocol{
 
                         break;
                     case DATA_SHORT:
-                        System.out.print("DATA_SHORT: ");
-                        printByteBuffer(bytes); //Just print the data
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
 
 
                         // TODO read data, check if negotiating
