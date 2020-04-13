@@ -25,11 +25,12 @@ public class MyProtocol{
         NULL,
         DISCOVERY,
         SENT_DISCOVERY,
-        PAUSED_DISCOVERY,
 
         // etc
         NEGOTIATING,
-        READY
+        READY,
+        TIMING_SLAVE,
+        TIMING_MASTER;
     }
 
     public class SmallPacket{
@@ -100,13 +101,14 @@ public class MyProtocol{
     private static int SERVER_PORT = 8954;
     // The frequency to use.
     private static int frequency = 8400;
+    private int exponential_backoff = 1;
 
     public void setState(State state) {
         this.state = state;
         System.out.println("NEW STATE: " +state.toString());
     }
 
-    private State state = State.NEGOTIATING;
+    private State state = State.READY;
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
@@ -126,7 +128,7 @@ public class MyProtocol{
 
 
 
-        startDiscoveryPhase();
+        startDiscoveryPhase(exponential_backoff);
 
 
 
@@ -165,9 +167,11 @@ public class MyProtocol{
         }        
     }
 
-    private void startDiscoveryPhase() {
+    private void startDiscoveryPhase(int exponential_backoff) {
+        setState(State.DISCOVERY);
+        sourceIP = -1;
         tiebreaker = new Random().nextInt(1<<7);
-        timer = new Timer(new Random().nextInt(4000)+8000, new ActionListener() {
+        timer = new Timer(new Random().nextInt(2000*exponential_backoff)+8000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.DISCOVERY) {
@@ -177,20 +181,6 @@ public class MyProtocol{
                         e.printStackTrace();
                     }
 
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
-    }
-
-    private void startPausedDiscoveryPhase() {
-        timer = new Timer(new Random().nextInt(2000)+6000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) {
-                if (state==State.PAUSED_DISCOVERY) {
-                    setState(State.DISCOVERY);
-                    startDiscoveryPhase();
                 }
             }
         });
@@ -229,7 +219,6 @@ public class MyProtocol{
                     sourceIP = 0;
                     startTimingMasterPhase();
 
-
                 }
             }
         });
@@ -238,6 +227,14 @@ public class MyProtocol{
     }
 
     private void startTimingMasterPhase() {
+        setState(State.TIMING_MASTER);
+        exponential_backoff = 1;
+        // TODO implement
+    }
+
+    private void startTimingSlavePhase() {
+        setState(State.TIMING_SLAVE);
+        exponential_backoff = 1;
         // TODO implement
     }
 
@@ -384,17 +381,17 @@ public class MyProtocol{
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
                         SmallPacket packet = readSmallPacket(bytes);
-                        boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
 
-                        boolean go_to_PAUSED_DISCOVERY = other_discovery_packet;
-
-                        if (go_to_PAUSED_DISCOVERY) {
+                        if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                             timer.stop(); // TODO does this work?
-                            setState(State.PAUSED_DISCOVERY);
-
-                            // TODO make new timer for 6-8 seconds to go set state discovery and startDiscoveryPhase
+                            exponential_backoff*=2; // TODO when reset?
+                            startDiscoveryPhase(exponential_backoff);
                         }
 
+                        if (packet.broadcast && packet.SYN) { // timing master packet
+                            timer.stop();
+                            startTimingSlavePhase();
+                        }
                         break;
                 }
                 break;
@@ -405,22 +402,17 @@ public class MyProtocol{
                         printByteBuffer(bytes, false); //Just print the data
                         SmallPacket packet = readSmallPacket(bytes);
                         boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
-
-                        boolean go_to_PAUSED_DISCOVERY = false;
-
-                        if (other_discovery_packet) {
-                            boolean we_lost_tiebreaker = tiebreaker <= packet.ackNum;
-                            go_to_PAUSED_DISCOVERY = we_lost_tiebreaker;
-                        }
-
                         boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
-                        if (discovery_denied_packet) {
-                            boolean same_acks = packet.ackNum == tiebreaker;
-                            go_to_PAUSED_DISCOVERY = same_acks;
+
+                        if ((other_discovery_packet && ( tiebreaker <= packet.ackNum) ) || ( discovery_denied_packet && packet.ackNum == tiebreaker)) {
+                            timer.stop(); // TODO does this work?
+                            exponential_backoff*=2;
+                            startDiscoveryPhase(exponential_backoff);
                         }
 
-                        if (go_to_PAUSED_DISCOVERY) {
-                            // TODO copy from other branch
+                        if (packet.broadcast && packet.SYN) {
+                            timer.stop();
+                            startTimingSlavePhase();
                         }
                         break;
                 }
@@ -469,12 +461,9 @@ public class MyProtocol{
                 }
         }
 
-
-        if (state==State.READY) {
-
-        }
-
     }
+
+
 
 
 }
