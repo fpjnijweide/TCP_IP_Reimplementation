@@ -108,7 +108,11 @@ public class MyProtocol{
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.DISCOVERY) {
-                    sendDiscoveryPacket();
+                    try {
+                        sendDiscoveryPacket();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
 
                 }
             }
@@ -158,9 +162,10 @@ public class MyProtocol{
         sendingQueue.put(msg);
     }
 
-    private void sendDiscoveryPacket() {
+    private void sendDiscoveryPacket() throws InterruptedException {
         int tiebreaker = new Random().nextInt(1<<7);
         SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
+        sendSmallPacket(packet);
         state=State.SENT_DISCOVERY;
     }
 
