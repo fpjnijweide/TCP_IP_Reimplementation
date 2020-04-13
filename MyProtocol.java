@@ -68,7 +68,7 @@ public class MyProtocol{
         int size; // 5 bit number, range [0,31]
 
         // Other bytes
-        byte[] payload; // TODO what to do with this
+        byte[] payload;
         byte[] payloadWithoutPadding;
 
         public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size) {
@@ -149,9 +149,8 @@ public class MyProtocol{
                 } else if(read > 0){
                     ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    // TODO split up text into multiple packets if read-1 > 28 (use for loop)
                     for (int i = 0; i < read-1; i+=28) {
-                        byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i]; // TODO what if it's less than 28
+                        byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
                         System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
@@ -211,7 +210,7 @@ public class MyProtocol{
         for (int i = 4; i <= 31 ; i++) {
             result[i] = packet.payload[i-4];
         }
-        return result; // TODO fill the rest of the bytes with packet.toSend
+        return result;
     }
 
     public SmallPacket readSmallPacket(byte[] bytes) {
@@ -237,7 +236,7 @@ public class MyProtocol{
         if (size>32){
             System.err.println("Packet size is too big");
         }
-        byte[] payload = new byte[28]; // TODO implement how to read data (maybe have a separate payloadWithoutPadding field in BigPacket)
+        byte[] payload = new byte[28];
         byte[] payloadWithoutPadding = new byte[size-4];
 
         for (int i = 4; i <= 31; i++) {
@@ -251,9 +250,9 @@ public class MyProtocol{
     }
 
     public byte[] appendToBuffer(BigPacket packet) {
-        for (int i = 0; i < packet.size-4; i++) { // TODO maybe loop over packet.payloadWithoutPadding
-            byte toInsert = packet.payload[i];
-            buffer.add(toInsert);
+        // TODO rewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
+        for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
+            buffer.add(packet.payloadWithoutPadding[i]);
         }
 
         if (packet.morePackFlag) {
@@ -364,9 +363,6 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-
-
-                        // TODO read data, check if negotiating
                         break;
                     case DONE_SENDING:
                         System.out.println("DONE_SENDING");
