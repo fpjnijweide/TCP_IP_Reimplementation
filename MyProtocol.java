@@ -5,7 +5,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.nio.ByteBuffer;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,10 +28,10 @@ public class MyProtocol{
         SENT_DISCOVERY,
 
         // etc
-        NEGOTIATING,
+        NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER;
     }
 
     public class SmallPacket{
@@ -143,8 +142,11 @@ public class MyProtocol{
                 } else if(read > 0){
                     ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    if (new String(text.array(), StandardCharsets.US_ASCII).equals("DISCOVERY")){
+                    String textString = new String(text.array(), StandardCharsets.US_ASCII);
+                    if (textString.equals("DISCOVERY")){
                         startDiscoveryPhase(exponential_backoff);
+                    } else if (textString.equals("DISCOVERYNOW")) {
+                        startDiscoveryPhase(0);
                     } else {
                         for (int i = 0; i < read-1; i+=28) {
                             byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
@@ -154,7 +156,7 @@ public class MyProtocol{
 //                        }
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
-                            sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,partial_text,0,morePacketsFlag,size));
+                            sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size));
 
                         }
                     }
@@ -172,7 +174,7 @@ public class MyProtocol{
         setState(State.DISCOVERY);
         sourceIP = -1;
         tiebreaker = new Random().nextInt(1<<7);
-        timer = new Timer(new Random().nextInt(2000*exponential_backoff)+8000, new ActionListener() {
+        timer = new Timer(new Random().nextInt(2000*exponential_backoff + 1)+8000*exponential_backoff, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.DISCOVERY) {
@@ -208,7 +210,7 @@ public class MyProtocol{
     private void sendDiscoveryPacket() throws InterruptedException {
         SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
         sendSmallPacket(packet);
-        setState(State.SENT_DISCOVERY); // TODO what if there is interference?
+        setState(State.SENT_DISCOVERY);
         startSentDiscoveryPhase();
     }
 
@@ -230,17 +232,43 @@ public class MyProtocol{
     private void startTimingMasterPhase() {
         setState(State.TIMING_MASTER);
         exponential_backoff = 1;
-        // TODO implement
+        // todo geef lengte negotiation phase aan in acknum.
+        SmallPacket packet = new SmallPacket(0,0,ackNumTodo,false,false,false,true,true);
+        sendSmallPacket(packet);
+        // TODO go to negotiation phase master
     }
 
     private void startTimingSlavePhase() {
         setState(State.TIMING_SLAVE);
         exponential_backoff = 1;
-        // TODO implement
+        timer = new Timer(10000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.SENT_DISCOVERY) {
+                    exponential_backoff = 1;
+                    startDiscoveryPhase(exponential_backoff);
+
+                }
+            }
+        });
+
+    }
+
+    private void startTimingStrangerPhase() {
+        setState(State.TIMING_STRANGER);
+        exponential_backoff = 1;
+        // TODO rebroadcast?
+        startNegotiationStrangerPhase();
+    }
+
+    private void startNegotiationStrangerPhase(){
+        setState(State.NEGOTIATION_STRANGER);
+        // TODO roll a random number*(1 + timing_phases_encountered/10). If above 0.25, go for it. Gebruik negotiation phase lengte hiervoor. Aparte negotiation structuur?
+        // TODO IF YOU went for it, go to SENT_NEGOTIATION phase
+        // TODO else go to WAITING_FOR_TIMING_STRANGER
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
-        // TODO aparte negotiation packet structuur?
         byte first_byte = (byte) (packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0));
         byte second_byte = (byte) ((packet.negotiate? 1:0) << 7 | packet.ackNum);
         return new byte[]{first_byte, second_byte};
@@ -353,10 +381,6 @@ public class MyProtocol{
             this.receivedQueue = receivedQueue;
         }
 
-
-
-        // TODO discovery phase: network toplogy
-
         public void run(){
             while(true) {
                 try{
@@ -384,14 +408,12 @@ public class MyProtocol{
                         SmallPacket packet = readSmallPacket(bytes);
 
                         if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
-                            timer.stop(); // TODO does this work?
-                            exponential_backoff*=2; // TODO when reset?
-                            startDiscoveryPhase(exponential_backoff);
-                        }
-
-                        if (packet.broadcast && packet.SYN) { // timing master packet
                             timer.stop();
-                            startTimingSlavePhase();
+                            exponential_backoff*=2;
+                            startDiscoveryPhase(exponential_backoff);
+                        } else if (packet.broadcast && packet.SYN) { // timing master packet
+                            timer.stop();
+                            startTimingStrangerPhase();
                         }
                         break;
                 }
@@ -406,17 +428,32 @@ public class MyProtocol{
                         boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
 
                         if ((other_discovery_packet && ( tiebreaker <= packet.ackNum) ) || ( discovery_denied_packet && packet.ackNum == tiebreaker)) {
-                            timer.stop(); // TODO does this work?
+                            timer.stop();
                             exponential_backoff*=2;
                             startDiscoveryPhase(exponential_backoff);
                         }
 
                         if (packet.broadcast && packet.SYN) {
                             timer.stop();
-                            startTimingSlavePhase();
+                            startTimingStrangerPhase();
                         }
                         break;
                 }
+                break;
+            case TIMING_MASTER:
+                // is eigenlijk zo kort dat er niks kan gebeuren
+                break;
+            case TIMING_STRANGER:
+                // is eigenlijk zo kort dat er niks kan gebeuren
+                break;
+            case TIMING_SLAVE:
+                // TODO als je een post-negotiation packet krijgt, cancel timing enzo en ga naar de post_negotiation/request phase?
+                break;
+            case NEGOTIATION_MASTER:
+                // todo REAGEER OP negotiation packets
+                break;
+            case NEGOTIATION_STRANGER:
+                // TODO als je een andere negotiation packet krijgt: stil zijn
                 break;
             case READY:
                 switch (type) {
