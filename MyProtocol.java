@@ -62,7 +62,7 @@ public class MyProtocol{
     private static int SERVER_PORT = 8954;
     // The frequency to use.
     private static int frequency = 5400;
-    private State state = State.NEGOTIATING;
+    private State state = State.READY; // todo make negotiating
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
