@@ -53,13 +53,13 @@ public class MyProtocol{
         int size; // 5 bit number, range [0,31]
 
         // Other bytes
-        byte[] toSend; // TODO what to do with this
+        byte[] payload; // TODO what to do with this
 
 
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
-            this.toSend = toSend;
+            this.payload = payload;
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
             this.size = size;
@@ -75,6 +75,8 @@ public class MyProtocol{
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
+
+    public static int read;
 
     public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -93,7 +95,7 @@ public class MyProtocol{
         // handle sending from stdin from this thread.
         try{
             ByteBuffer temp = ByteBuffer.allocate(1024);
-            int read = 0;
+            read = 0;
             while(true){
                 read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
                 System.out.println(read-1);
@@ -129,8 +131,9 @@ public class MyProtocol{
             System.exit(2);
         } catch (IOException e){
             System.exit(2);
-        }        
-    }
+        }
+
+       }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
         // TODO aparte negotiation packet structuur?
@@ -139,11 +142,33 @@ public class MyProtocol{
         return new byte[]{first_byte, second_byte};
     }
 
+    public byte[] splitBigPacket(BigPacket packet){
+        int byte_nums_msg = (read + 28 - 1)/ 28;
+        byte msg_byte = 0;
+        byte[] message = new byte [byte_nums_msg];
+        for (int i = 0; i <byte_nums_msg;i++){
+            for(int j = i * 28; j< (i+1)*28; j++){
+               msg_byte = (byte) (msg_byte | packet.payload[j]);
+            }
+            message[i] = msg_byte;
+        }
+        return message;
+    }
+
     public byte[] fillBigPacket(BigPacket packet) {
         byte[] first_two_bytes = fillSmallPacket(packet);
         byte third_byte = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
         byte fourth_byte = (byte) packet.size; // three bits left here
-        return new byte[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest of the bytes with packet.toSend
+        byte[] msg_bytes = splitBigPacket(packet);
+        byte[] filled_big_packet = new byte[4 + (read - 1 + 8 - 1)/ 8];
+        filled_big_packet[0] = first_two_bytes[0];
+        filled_big_packet[1] = first_two_bytes[1];
+        filled_big_packet[2] = third_byte;
+        filled_big_packet[3] = fourth_byte;
+        for(int i = 0; i<msg_bytes.length;i++){
+            filled_big_packet[4 + i] = msg_bytes[i];
+        }
+        return filled_big_packet; // TODO fill the rest of the bytes with packet.toSend
     }
 
     public SmallPacket readSmallPacket(byte[] bytes) {
@@ -166,11 +191,20 @@ public class MyProtocol{
         boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
         int seqNum = bytes[3] & 0x7F;
         int size = bytes[4] & 0x1F;
-        if (size>30){
+        if (size>32){
             System.err.println("Packet size is too big");
         }
-        byte[] toSend = new byte[0]; // TODO implement how to read data
-        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
+        int byte_nums_msg = (read - 1 + 8 - 1)/ 8;
+        byte msg_byte = 0;
+        byte[] payload = new byte [byte_nums_msg];
+        for (int i = 0; i <byte_nums_msg;i++){
+            for(int j = i * 8; j< i*8 + 8; j++){
+                payload = (byte) (payload | (bytes[j]);
+            }
+            payload[i] = msg_byte;
+        }
+       // TODO implement how to read data
+        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, seqNum, morePackFlag, size);
         return packet;
     }
 
@@ -220,6 +254,14 @@ public class MyProtocol{
                     } else if (m.getType() == MessageType.DATA){
                         System.out.print("DATA: ");
                         printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
+
+                        byte[] receivedBytes = m.getData().array();
+                        BigPacket packet = readBigPacket(receivedBytes);
+
+                            System.out.println("source IP from this packet is" + packet.sourceIP);
+                            System.out.println("packet sent to " + packet.destIP);
+                        //System.out.println("message is: " + packet.mess);
+
 
                     } else if (m.getType() == MessageType.DATA_SHORT){
                         System.out.print("DATA_SHORT: ");
