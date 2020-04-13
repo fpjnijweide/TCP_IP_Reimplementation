@@ -19,14 +19,17 @@ public class MyProtocol{
     }
 
     public class SmallPacket{
+        // First byte
         int sourceIP; // 2 bit number, range [0,3]
         int destIP; // 2 bit number, range [0,3]
-        int ackNum; // 7 bit number, range [0,127]
         boolean ackFlag;
         boolean request;
-        boolean negotiate;
-        boolean SYN;
         boolean broadcast;
+        boolean SYN;
+
+        // Second byte
+        boolean negotiate;
+        int ackNum; // 7 bit number, range [0,127]
 
         public SmallPacket(){
 
@@ -45,10 +48,17 @@ public class MyProtocol{
     }
 
     public class BigPacket extends SmallPacket{
-        int[] toSend; // TODO what to do with this
+        // Third byte
         boolean morePackFlag;
         int seqNum; // 7 bit number, range [0,127]
+
+        // Fourth byte
         int size; // 5 bit number, range [0,31]
+
+        // Other bytes
+        int[] toSend; // TODO what to do with this
+
+
 
         public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, int[] toSend, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
@@ -107,6 +117,7 @@ public class MyProtocol{
                     }
                   //  for
                     toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
+//                    toSend.put( fillBigPacket(new BigPacket(1,2,3,true,true,true,true,true,new int[]{3,4},1,true,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){
                         msg = new Message(MessageType.DATA, toSend);
@@ -123,21 +134,21 @@ public class MyProtocol{
         }        
     }
 
-    public int[] fillSmallPacket(SmallPacket packet) {
+    public byte[] fillSmallPacket(SmallPacket packet) {
         // TODO aparte negotiation packet structuur?
-        int first_byte = packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0);
-        int second_byte = (packet.negotiate? 1:0) << 7 | packet.ackNum;
-        return new int[]{first_byte, second_byte};
+        byte first_byte = (byte) (packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0));
+        byte second_byte = (byte) ((packet.negotiate? 1:0) << 7 | packet.ackNum);
+        return new byte[]{first_byte, second_byte};
     }
 
-    public int[] fillBigPacket(BigPacket packet) {
-        int[] first_two_bytes = fillSmallPacket(packet);
-        int third_byte = (packet.morePackFlag?1:0) << 7 | packet.seqNum;
-        int fourth_byte =  packet.size; // three bits left here
-        return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest of the bytes with packet.toSend
+    public byte[] fillBigPacket(BigPacket packet) {
+        byte[] first_two_bytes = fillSmallPacket(packet);
+        byte third_byte = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
+        byte fourth_byte = (byte) packet.size; // three bits left here
+        return new byte[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest of the bytes with packet.toSend
     }
 
-    public SmallPacket readSmallPacket(int[] bytes) {
+    public SmallPacket readSmallPacket(byte[] bytes) {
         SmallPacket packet = new SmallPacket();
         packet.sourceIP = (bytes[0] >> 6) & 0x03;
         packet.destIP = (bytes[0] >> 4) & 0x03;
@@ -152,7 +163,7 @@ public class MyProtocol{
         return packet;
     }
 
-    public BigPacket readBigPacket(int[] bytes) {
+    public BigPacket readBigPacket(byte[] bytes) {
         SmallPacket smallPacket = readSmallPacket(bytes);
         boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
         int seqNum = bytes[3] & 0x7F;
