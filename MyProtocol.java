@@ -83,6 +83,7 @@ public class MyProtocol{
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
+
         new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
@@ -116,7 +117,7 @@ public class MyProtocol{
                         toSend = ByteBuffer.allocate(2);
                     }
                   //  for
-                    toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
+//                    toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     toSend.put( fillBigPacket(new BigPacket(1,2,3,true,true,true,true,true,temp.array(),1,true,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){
