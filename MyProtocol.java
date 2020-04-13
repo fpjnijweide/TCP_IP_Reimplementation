@@ -68,13 +68,13 @@ public class MyProtocol{
         int size; // 5 bit number, range [0,31]
 
         // Other bytes
-        byte[] toSend; // TODO what to do with this
+        byte[] payload; // TODO what to do with this
 
 
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
-            this.toSend = toSend;
+            this.payload = payload;
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
             this.size = size;
@@ -254,7 +254,7 @@ public class MyProtocol{
                     processMessage(m.getData().array(),m.getType());
                 } catch (InterruptedException e){
                     System.err.println("Failed to take from queue: "+e);
-                }                
+                }
             }
         }
     }
@@ -280,9 +280,8 @@ public class MyProtocol{
 
 
                         BigPacket packet = readBigPacket(bytes);
-                        if (packet.sourceIP == 3) {
-                            System.out.println("het is 3!!!!");
-                        }
+                        System.out.println("source IP from this packet is" + packet.sourceIP);
+                        System.out.println("packet sent to " + packet.destIP);
 
                         break;
                     case DATA_SHORT:
