@@ -69,12 +69,24 @@ public class MyProtocol{
 
         // Other bytes
         byte[] payload; // TODO what to do with this
+        byte[] payloadWithoutPadding;
 
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size) {
+            super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
+            this.payload = new byte[28];
+            for (int j = 0; j < size-4; j++) {
+                payload[j] = payloadWithoutPadding[j];
+            }
+            this.payloadWithoutPadding = payloadWithoutPadding;
+            this.seqNum = seqNum;
+            this.morePackFlag = morePackFlag;
+            this.size = size;
+        }
 
-
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.payload = payload;
+            this.payloadWithoutPadding = payloadWithoutPadding;
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
             this.size = size;
@@ -86,7 +98,7 @@ public class MyProtocol{
     private static int SERVER_PORT = 8954;
     // The frequency to use.
     private static int frequency = 5400;
-    private State state = State.DISCOVERY; // todo make negotiating
+    private State state = State.READY; // todo make negotiating
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
@@ -135,10 +147,10 @@ public class MyProtocol{
                 if (state==State.NULL) { // TODO actually use states here
                     System.out.println("Can't send messages while negotiating");
                 } else if(read > 0){
-                    ByteBuffer text = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+                    ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
                     // TODO actually put temp array met length -1 here
-                    sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,text.array(),0,false,30));
+                    sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,text.array(),0,false,read-1+4));
                 }
             }
 
@@ -151,14 +163,16 @@ public class MyProtocol{
 
     public void sendPacket(BigPacket packet) throws InterruptedException {
         ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
-        toSend.put( fillBigPacket(packet), 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
+        byte[] packetBytes = fillBigPacket(packet);
+        toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA, toSend);
         sendingQueue.put(msg);
     }
 
     public void sendSmallPacket(SmallPacket packet) throws InterruptedException {
         ByteBuffer toSend = ByteBuffer.allocate(2);
-        toSend.put( fillSmallPacket(packet), 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
+        byte[] packetBytes = fillSmallPacket(packet);
+        toSend.put( packetBytes, 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA_SHORT, toSend);
         sendingQueue.put(msg);
     }
@@ -178,10 +192,16 @@ public class MyProtocol{
     }
 
     public byte[] fillBigPacket(BigPacket packet) {
+        byte[] result = new byte[32];
         byte[] first_two_bytes = fillSmallPacket(packet);
-        byte third_byte = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
-        byte fourth_byte = (byte) packet.size; // three bits left here
-        return new byte[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest of the bytes with packet.toSend
+        result[0] = first_two_bytes[0];
+        result[1] = first_two_bytes[1];
+        result[2] = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
+        result[3] = (byte) (packet.size-1); // three bits left here
+        for (int i = 4; i <= 31 ; i++) {
+            result[i] = packet.payload[i-4];
+        }
+        return result; // TODO fill the rest of the bytes with packet.toSend
     }
 
     public SmallPacket readSmallPacket(byte[] bytes) {
@@ -203,28 +223,36 @@ public class MyProtocol{
         SmallPacket smallPacket = readSmallPacket(bytes);
         boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
         int seqNum = bytes[3] & 0x7F;
-        int size = bytes[4] & 0x1F;
+        int size = (bytes[4] & 0x1F) + 1;
         if (size>32){
             System.err.println("Packet size is too big");
         }
-        byte[] toSend = new byte[0]; // TODO implement how to read data (maybe have a separate payloadWithoutPadding field in BigPacket)
-        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
+        byte[] payload = new byte[28]; // TODO implement how to read data (maybe have a separate payloadWithoutPadding field in BigPacket)
+        byte[] payloadWithoutPadding = new byte[size-4];
+
+        for (int i = 4; i <= 31; i++) {
+            payload[i-4] = bytes[i];
+            if (i<size) {
+                payloadWithoutPadding[i-4] = bytes[i];
+            }
+        }
+        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, payloadWithoutPadding, seqNum, morePackFlag, size);
         return packet;
     }
 
-    public List<Byte> appendToBuffer(BigPacket packet) {
-        for (int i = 0; i < packet.payload.length; i++) {
-            if (i > packet.size-4) {
-                break;
-            }
+    public byte[] appendToBuffer(BigPacket packet) {
+        for (int i = 0; i < packet.size-4; i++) { // TODO maybe loop over packet.payloadWithoutPadding
             byte toInsert = packet.payload[i];
             buffer.add(toInsert);
         }
 
         if (packet.morePackFlag) {
-            return new ArrayList<Byte>();
+            return new byte[]{};
         } else {
-            List<Byte> bufferCopy = new ArrayList<Byte>(buffer);
+            byte[] bufferCopy = new byte[buffer.size()];
+            for (int i = 0; i < buffer.size(); i++) {
+                bufferCopy[i] = buffer.get(i);
+            }
             buffer.clear();
             return bufferCopy;
         }
@@ -269,7 +297,7 @@ public class MyProtocol{
             while(true) {
                 try{
                     Message m = receivedQueue.take();
-                    processMessage(m.getData().array(),m.getType());
+                    processMessage(m.getData(),m.getType());
                 } catch (InterruptedException e){
                     System.err.println("Failed to take from queue: "+e);
                 }
@@ -277,7 +305,12 @@ public class MyProtocol{
         }
     }
 
-    private void processMessage(byte[] bytes, MessageType type) {
+    private void processMessage(ByteBuffer data, MessageType type) {
+        byte [] bytes = null;
+        if (data != null) {
+            bytes = data.array();
+
+        }
         switch (state) {
             case DISCOVERY:
                 switch (type) {
@@ -300,8 +333,8 @@ public class MyProtocol{
                         BigPacket packet = readBigPacket(bytes);
 
                         if (packet.morePackFlag || buffer.size() > 0) {
-                            List<Byte> result = appendToBuffer(packet);
-                            if (result.size() > 0) {
+                            byte[] result = appendToBuffer(packet);
+                            if (result.length > 0) {
                                 printByteBuffer(result);
                             }
                         }
