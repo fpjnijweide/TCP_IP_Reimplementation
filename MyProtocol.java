@@ -1,7 +1,13 @@
 import client.*;
 
+import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.nio.ByteBuffer;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -14,6 +20,12 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class MyProtocol{
     public enum State{
+        NULL,
+        DISCOVERY,
+        SENT_DISCOVERY,
+        RECEIVED_DISCOVERY,
+
+        // etc
         NEGOTIATING,
         READY
     }
@@ -74,10 +86,12 @@ public class MyProtocol{
     private static int SERVER_PORT = 8954;
     // The frequency to use.
     private static int frequency = 5400;
-    private State state = State.READY; // todo make negotiating
+    private State state = State.DISCOVERY; // todo make negotiating
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
+
+    Timer timer;
 
     public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -90,6 +104,17 @@ public class MyProtocol{
 
 
 
+        timer = new Timer(new Random().nextInt(4000)+8000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.DISCOVERY) {
+                    sendDiscoveryPacket();
+
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
 
 
 
@@ -102,30 +127,13 @@ public class MyProtocol{
                 read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
                 System.out.println(read-1);
 
-                if (state==State.NEGOTIATING) {
+                if (state==State.NULL) { // TODO actually use states here
                     System.out.println("Can't send messages while negotiating");
                 } else if(read > 0){
-                    // TODO when no longer negotiating: send out something in the request phase, and in the data phase
-                    ByteBuffer toSend;
-                    if(read >2) {
-                        toSend = ByteBuffer.allocate(read - 1 + 4); // jave includes newlines in System.in.read, so -2 to ignore this
-                      //  for(int i = read; i<32; i++){
-                      //      toSend.put()
-                      //  }
-                    }
-                    else{
-                        toSend = ByteBuffer.allocate(2);
-                    }
-                  //  for
-//                    toSend.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    toSend.put( fillBigPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,temp.array(),0,false,30)), 0, read-1+4 ); // jave includes newlines in System.in.read, so -2 to ignore this
-                    Message msg;
-                    if( (read-1) > 2 ){
-                        msg = new Message(MessageType.DATA, toSend);
-                    } else {
-                        msg = new Message(MessageType.DATA_SHORT, toSend);
-                    }
-                    sendingQueue.put(msg);
+                    ByteBuffer text = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+                    text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
+                    // TODO actually put temp array met length -1 here
+                    sendPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,text.array(),0,false,30));
                 }
             }
 
@@ -134,6 +142,26 @@ public class MyProtocol{
         } catch (IOException e){
             System.exit(2);
         }        
+    }
+
+    public void sendPacket(BigPacket packet) throws InterruptedException {
+        ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+        toSend.put( fillBigPacket(packet), 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
+        Message msg = new Message(MessageType.DATA, toSend);
+        sendingQueue.put(msg);
+    }
+
+    public void sendSmallPacket(SmallPacket packet) throws InterruptedException {
+        ByteBuffer toSend = ByteBuffer.allocate(2);
+        toSend.put( fillSmallPacket(packet), 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
+        Message msg = new Message(MessageType.DATA_SHORT, toSend);
+        sendingQueue.put(msg);
+    }
+
+    private void sendDiscoveryPacket() {
+        int tiebreaker = new Random().nextInt(1<<7);
+        SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
+        state=State.SENT_DISCOVERY;
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -189,6 +217,18 @@ public class MyProtocol{
         }
          new MyProtocol(SERVER_IP, SERVER_PORT, frequency, sourceIP);
     }
+    public void printByteBuffer(byte[] bytes){
+        for (byte aByte : bytes) {
+            System.out.print((char) aByte);
+        }
+        System.out.println();
+        System.out.print( "HEX: ");
+        for (byte aByte : bytes) {
+            System.out.print(String.format("%02x", aByte) + " ");
+        }
+        System.out.println();
+
+    }
 
     private class receiveThread extends Thread {
         private BlockingQueue<Message> receivedQueue;
@@ -198,18 +238,7 @@ public class MyProtocol{
             this.receivedQueue = receivedQueue;
         }
 
-        public void printByteBuffer(ByteBuffer bytes, int bytesLength){
-            for(int i=0; i<bytesLength; i++){
-                System.out.print((char )( bytes.get(i) ) );
-            }
-            System.out.println();
-            System.out.print( "HEX: ");
-            for(int i=0; i<bytesLength; i++){
-                System.out.print( String.format("%02x", bytes.get(i)) +" " );
-            }
-            System.out.println();
 
-        }
 
         // TODO discovery phase: network toplogy
 
@@ -217,33 +246,67 @@ public class MyProtocol{
             while(true) {
                 try{
                     Message m = receivedQueue.take();
-                    if (m.getType() == MessageType.BUSY){
-                        System.out.println("BUSY");
-                    } else if (m.getType() == MessageType.FREE){
-                        System.out.println("FREE");
-                    } else if (m.getType() == MessageType.DATA){
-                        System.out.print("DATA: ");
-                        printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
-
-                    } else if (m.getType() == MessageType.DATA_SHORT){
-                        System.out.print("DATA_SHORT: ");
-                        printByteBuffer( m.getData(), m.getData().capacity() ); //Just print the data
-                        // TODO read data, check if negotiating
-                    } else if (m.getType() == MessageType.DONE_SENDING){
-                        System.out.println("DONE_SENDING");
-                    } else if (m.getType() == MessageType.HELLO){
-                        System.out.println("HELLO");
-                    } else if (m.getType() == MessageType.SENDING){
-                        System.out.println("SENDING");
-                    } else if (m.getType() == MessageType.END){
-                        System.out.println("END");
-                        System.exit(0);
-                    }
+                    processMessage(m.getData().array(),m.getType());
                 } catch (InterruptedException e){
                     System.err.println("Failed to take from queue: "+e);
                 }                
             }
         }
+    }
+
+    private void processMessage(byte[] bytes, MessageType type) {
+        switch (state) {
+            case DISCOVERY:
+                switch (type) {
+                    // TODO kil running timers
+                }
+                break;
+            case READY:
+                switch (type) {
+                    case BUSY:
+                        System.out.println("BUSY");
+                        break;
+                    case FREE:
+                        System.out.println("FREE");
+                        break;
+                    case DATA:
+                        System.out.print("DATA: ");
+                        printByteBuffer(bytes); //Just print the data
+
+
+                        BigPacket packet = readBigPacket(bytes);
+                        if (packet.sourceIP == 3) {
+                            System.out.println("het is 3!!!!");
+                        }
+
+                        break;
+                    case DATA_SHORT:
+                        System.out.print("DATA_SHORT: ");
+                        printByteBuffer(bytes); //Just print the data
+
+
+                        // TODO read data, check if negotiating
+                        break;
+                    case DONE_SENDING:
+                        System.out.println("DONE_SENDING");
+                        break;
+                    case HELLO:
+                        System.out.println("HELLO");
+                        break;
+                    case SENDING:
+                        System.out.println("SENDING");
+                        break;
+                    case END:
+                        System.out.println("END");
+                        System.exit(0);
+                }
+        }
+
+
+        if (state==State.READY) {
+
+        }
+
     }
 
 
