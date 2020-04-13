@@ -28,6 +28,10 @@ public class MyProtocol{
         boolean SYN;
         boolean broadcast;
 
+        public SmallPacket(){
+
+        }
+
         public SmallPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast) {
             this.sourceIP = sourceIP;
             this.destIP = destIP;
@@ -41,12 +45,12 @@ public class MyProtocol{
     }
 
     public class BigPacket extends SmallPacket{
-        byte[] toSend; // TODO what to do with this
+        int[] toSend; // TODO what to do with this
         boolean morePackFlag;
         int seqNum; // 7 bit number, range [0,127]
-        int size; // 5 bit number, range [0,32]
+        int size; // 5 bit number, range [0,31]
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int offset_nr, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, int[] toSend, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.toSend = toSend;
             this.seqNum = seqNum;
@@ -120,7 +124,7 @@ public class MyProtocol{
     }
 
     public int[] fillSmallPacket(SmallPacket packet) {
-        // TODO aparte negotiation packet structuur
+        // TODO aparte negotiation packet structuur?
         int first_byte = packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0);
         int second_byte = (packet.negotiate? 1:0) << 7 | packet.ackNum;
         return new int[]{first_byte, second_byte};
@@ -130,10 +134,33 @@ public class MyProtocol{
         int[] first_two_bytes = fillSmallPacket(packet);
         int third_byte = (packet.morePackFlag?1:0) << 7 | packet.seqNum;
         int fourth_byte =  packet.size; // three bits left here
-        return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest with packet.toSend
+        return new int[]{first_two_bytes[0], first_two_bytes[1], third_byte, fourth_byte}; // TODO fill the rest of the bytes with packet.toSend
     }
 
+    public SmallPacket readSmallPacket(int[] bytes) {
+        SmallPacket packet = new SmallPacket();
+        packet.sourceIP = (bytes[0] >> 6) & 0x03;
+        packet.destIP = (bytes[0] >> 4) & 0x03;
+        packet.ackFlag = ((bytes[0] >> 3) & 0x01)==1;
+        packet.request = ((bytes[0] >> 2) & 0x01)==1;
+        packet.broadcast = ((bytes[0] >> 1) & 0x01)==1;
+        packet.SYN = (bytes[0]  & 0x01)==1;
 
+        packet.negotiate = ((bytes[1] >> 7) & 0x01)==1;
+        packet.ackNum = bytes[1] & 0x7F;
+
+        return packet;
+    }
+
+    public BigPacket readBigPacket(int[] bytes) {
+        SmallPacket smallPacket = readSmallPacket(bytes);
+        boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
+        int seqNum = bytes[3] & 0x7F;
+        int size = bytes[4] & 0x1F;
+        int[] toSend = new int[0]; // TODO implement how to read data
+        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
+        return packet;
+    }
 
 
     public static void main(String args[]) {
