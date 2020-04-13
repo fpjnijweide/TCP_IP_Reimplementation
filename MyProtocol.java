@@ -19,17 +19,14 @@ public class MyProtocol{
     }
 
     public class SmallPacket{
-        // First byte
         int sourceIP; // 2 bit number, range [0,3]
         int destIP; // 2 bit number, range [0,3]
+        int ackNum; // 7 bit number, range [0,127]
         boolean ackFlag;
         boolean request;
-        boolean broadcast;
-        boolean SYN;
-
-        // Second byte
         boolean negotiate;
-        int ackNum; // 7 bit number, range [0,127]
+        boolean SYN;
+        boolean broadcast;
 
         public SmallPacket(){
 
@@ -79,7 +76,7 @@ public class MyProtocol{
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
 
-    public MyProtocol(String server_ip, int server_port, int frequency){
+    public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
@@ -107,7 +104,7 @@ public class MyProtocol{
                     // TODO when no longer negotiating: send out something in the request phase, and in the data phase
                     ByteBuffer toSend;
                     if(read >2) {
-                        toSend = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
+                        toSend = ByteBuffer.allocate(read - 1 + 4); // jave includes newlines in System.in.read, so -2 to ignore this
                       //  for(int i = read; i<32; i++){
                       //      toSend.put()
                       //  }
@@ -116,8 +113,8 @@ public class MyProtocol{
                         toSend = ByteBuffer.allocate(2);
                     }
                   //  for
-                    toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
-                    toSend.put( fillBigPacket(new BigPacket(1,2,3,true,true,true,true,true,temp.array(),1,true,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
+                    //toSend.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
+                    toSend.put( fillBigPacket(new BigPacket(sourceIP,2,0,false,false,false,false,false,temp.array(),0,false,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){
                         msg = new Message(MessageType.DATA, toSend);
@@ -127,6 +124,7 @@ public class MyProtocol{
                     sendingQueue.put(msg);
                 }
             }
+
         } catch (InterruptedException e){
             System.exit(2);
         } catch (IOException e){
@@ -168,6 +166,9 @@ public class MyProtocol{
         boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
         int seqNum = bytes[3] & 0x7F;
         int size = bytes[4] & 0x1F;
+        if (size>30){
+            System.err.println("Packet size is too big");
+        }
         byte[] toSend = new byte[0]; // TODO implement how to read data
         BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
         return packet;
@@ -175,10 +176,14 @@ public class MyProtocol{
 
 
     public static void main(String args[]) {
+        int sourceIP= -1;
         if(args.length > 0){
-            frequency = Integer.parseInt(args[0]);
+            //frequency = Integer.parseInt(args[0]);
+
+            sourceIP = Integer.parseInt(args[0]);
+            System.out.println("source IP is: " + sourceIP);
         }
-        new MyProtocol(SERVER_IP, SERVER_PORT, frequency);        
+         new MyProtocol(SERVER_IP, SERVER_PORT, frequency, sourceIP);
     }
 
     private class receiveThread extends Thread {
