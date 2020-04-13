@@ -19,11 +19,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 
 public class MyProtocol{
+    private int tiebreaker;
+
     public enum State{
         NULL,
         DISCOVERY,
         SENT_DISCOVERY,
-        RECEIVED_DISCOVERY,
+        PAUSED_DISCOVERY,
 
         // etc
         NEGOTIATING,
@@ -98,13 +100,20 @@ public class MyProtocol{
     private static int SERVER_PORT = 8954;
     // The frequency to use.
     private static int frequency = 8400;
-    private State state = State.READY; // todo make negotiating
+
+    public void setState(State state) {
+        this.state = state;
+        System.out.println("NEW STATE: " +state.toString());
+    }
+
+    private State state = State.NEGOTIATING;
 
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
 
     Timer timer;
     List<Byte> buffer = new ArrayList<>();
+    int sourceIP = -1;
 
     public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -117,21 +126,7 @@ public class MyProtocol{
 
 
 
-        timer = new Timer(new Random().nextInt(4000)+8000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) {
-                if (state==State.DISCOVERY) {
-                    try {
-                        sendDiscoveryPacket();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        startDiscoveryPhase();
 
 
 
@@ -170,6 +165,39 @@ public class MyProtocol{
         }        
     }
 
+    private void startDiscoveryPhase() {
+        tiebreaker = new Random().nextInt(1<<7);
+        timer = new Timer(new Random().nextInt(4000)+8000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.DISCOVERY) {
+                    try {
+                        sendDiscoveryPacket();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
+    }
+
+    private void startPausedDiscoveryPhase() {
+        timer = new Timer(new Random().nextInt(2000)+6000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.PAUSED_DISCOVERY) {
+                    setState(State.DISCOVERY);
+                    startDiscoveryPhase();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
+    }
+
     public void sendPacket(BigPacket packet) throws InterruptedException {
         ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
         byte[] packetBytes = fillBigPacket(packet);
@@ -187,10 +215,30 @@ public class MyProtocol{
     }
 
     private void sendDiscoveryPacket() throws InterruptedException {
-        int tiebreaker = new Random().nextInt(1<<7);
         SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
         sendSmallPacket(packet);
-        state=State.SENT_DISCOVERY;
+        setState(State.SENT_DISCOVERY); // TODO what if there is interference?
+        startSentDiscoveryPhase();
+    }
+
+    private void startSentDiscoveryPhase() {
+        timer = new Timer(2000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.SENT_DISCOVERY) {
+                    sourceIP = 0;
+                    startTimingMasterPhase();
+
+
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
+    }
+
+    private void startTimingMasterPhase() {
+        // TODO implement
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -332,7 +380,49 @@ public class MyProtocol{
         switch (state) {
             case DISCOVERY:
                 switch (type) {
-                    // TODO kil running timers
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
+
+                        boolean go_to_PAUSED_DISCOVERY = other_discovery_packet;
+
+                        if (go_to_PAUSED_DISCOVERY) {
+                            timer.stop(); // TODO does this work?
+                            setState(State.PAUSED_DISCOVERY);
+
+                            // TODO make new timer for 6-8 seconds to go set state discovery and startDiscoveryPhase
+                        }
+
+                        break;
+                }
+                break;
+            case SENT_DISCOVERY:
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
+
+                        boolean go_to_PAUSED_DISCOVERY = false;
+
+                        if (other_discovery_packet) {
+                            boolean we_lost_tiebreaker = tiebreaker <= packet.ackNum;
+                            go_to_PAUSED_DISCOVERY = we_lost_tiebreaker;
+                        }
+
+                        boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
+                        if (discovery_denied_packet) {
+                            boolean same_acks = packet.ackNum == tiebreaker;
+                            go_to_PAUSED_DISCOVERY = same_acks;
+                        }
+
+                        if (go_to_PAUSED_DISCOVERY) {
+                            // TODO copy from other branch
+                        }
+                        break;
                 }
                 break;
             case READY:
