@@ -56,11 +56,11 @@ public class MyProtocol{
         int size; // 5 bit number, range [0,31]
 
         // Other bytes
-        int[] toSend; // TODO what to do with this
+        byte[] toSend; // TODO what to do with this
 
 
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, int[] toSend, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] toSend, int seqNum, boolean morePackFlag, int size) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.toSend = toSend;
             this.seqNum = seqNum;
@@ -117,7 +117,7 @@ public class MyProtocol{
                     }
                   //  for
                     toSend.put( temp.array(), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
-//                    toSend.put( fillBigPacket(new BigPacket(1,2,3,true,true,true,true,true,new int[]{3,4},1,true,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
+                    toSend.put( fillBigPacket(new BigPacket(1,2,3,true,true,true,true,true,temp.array(),1,true,30)), 0, read-1 ); // jave includes newlines in System.in.read, so -2 to ignore this
                     Message msg;
                     if( (read-1) > 2 ){
                         msg = new Message(MessageType.DATA, toSend);
@@ -168,7 +168,7 @@ public class MyProtocol{
         boolean morePackFlag = ((bytes[3] >> 7) & 0x01)==1;
         int seqNum = bytes[3] & 0x7F;
         int size = bytes[4] & 0x1F;
-        int[] toSend = new int[0]; // TODO implement how to read data
+        byte[] toSend = new byte[0]; // TODO implement how to read data
         BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
         return packet;
     }
