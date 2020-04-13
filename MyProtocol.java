@@ -100,7 +100,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 8400;
+    private static int frequency = 5400;
     private int exponential_backoff = 1;
 
     public void setState(State state) {
