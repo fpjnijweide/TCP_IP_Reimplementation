@@ -92,6 +92,7 @@ public class MyProtocol{
     private BlockingQueue<Message> sendingQueue;
 
     Timer timer;
+    List<Byte> buffer = new ArrayList<>();
 
     public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -206,11 +207,28 @@ public class MyProtocol{
         if (size>32){
             System.err.println("Packet size is too big");
         }
-        byte[] toSend = new byte[0]; // TODO implement how to read data
+        byte[] toSend = new byte[0]; // TODO implement how to read data (maybe have a separate payloadWithoutPadding field in BigPacket)
         BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, toSend, seqNum, morePackFlag, size);
         return packet;
     }
 
+    public List<Byte> appendToBuffer(BigPacket packet) {
+        for (int i = 0; i < packet.payload.length; i++) {
+            if (i > packet.size-4) {
+                break;
+            }
+            byte toInsert = packet.payload[i];
+            buffer.add(toInsert);
+        }
+
+        if (packet.morePackFlag) {
+            return new ArrayList<Byte>();
+        } else {
+            List<Byte> bufferCopy = new ArrayList<Byte>(buffer);
+            buffer.clear();
+            return bufferCopy;
+        }
+    }
 
     public static void main(String args[]) {
         int sourceIP= -1;
@@ -280,6 +298,14 @@ public class MyProtocol{
 
 
                         BigPacket packet = readBigPacket(bytes);
+
+                        if (packet.morePackFlag || buffer.size() > 0) {
+                            List<Byte> result = appendToBuffer(packet);
+                            if (result.size() > 0) {
+                                printByteBuffer(result);
+                            }
+                        }
+
                         System.out.println("source IP from this packet is" + packet.sourceIP);
                         System.out.println("packet sent to " + packet.destIP);
 
