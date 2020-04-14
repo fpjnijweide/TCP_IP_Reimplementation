@@ -38,7 +38,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE;
     }
 
     public class SmallPacket{
@@ -168,6 +168,16 @@ public class MyProtocol{
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
+                            // TODO @Martijn implement sliding window here, sending side
+
+                            // TODO proper sequence number
+                            // TODO last ack received als field bijhouden
+                            // TODO last seq nr sent als field bjihouden
+                            // TODO SWS bijhouden als field
+                            // todo LAR+SWS (biggest sendable packet) bijhouden als field
+                            // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
+
+
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
                             sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size));
@@ -273,11 +283,27 @@ public class MyProtocol{
         startPostNegotiationMasterPhase();
     }
 
+
+    // TODO implement read side of all of these
+
+    private void startNegotiationStrangerDonePhase() {
+        setState(State.NEGOTIATION_STRANGER_DONE);
+        // TODO wait for POST_NEGOTIATION packet
+
+    }
+
     private void startPostNegotiationMasterPhase() {
         setState(State.POST_NEGOTIATION_MASTER);
         // todo collect all the packets from buffer..?
         // todo implement
     }
+
+    private void startPostNegotiationSlavePhase(SmallPacket packet) {
+        // TODO implement
+    }
+
+
+
     private void startTimingSlavePhase() {
         startTimingSlavePhase(0);
     }
@@ -611,6 +637,15 @@ public class MyProtocol{
                         System.out.println("source IP from this packet is" + packet.sourceIP);
                         System.out.println("packet sent to " + packet.destIP);
 
+                        // TODO @Martijn sliding window protocol receiving side
+
+                        // TODO stuur ACKs
+                        // TODO last (cumulative) ack sent bijhouden als field
+                        // TODO last packet received bijhouden als field
+                        // TODO LAS + RWS = einde van je window, bijhouden als field
+                        // TODO lijst aan booleans met welke packets je al binnen hebt binnen je window
+
+
                         break;
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
@@ -632,6 +667,8 @@ public class MyProtocol{
         }
 
     }
+
+
 
     private void detectInterference(long delay) {
         boolean interference = false;
@@ -691,6 +728,8 @@ public class MyProtocol{
 
 
     }
+
+
 
     public <E> List<E> permutationOfThree(int order, List<E> list) {
         // Obviously these are just permutations of a list of 3 items. Using some abstract algebra, you wouldn't need to hardcode this
