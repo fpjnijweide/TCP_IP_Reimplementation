@@ -510,11 +510,11 @@ public class MyProtocol{
     }
 
     public void startRequestMasterPhase() {
-        // TODO
+        // TODO @freek
     }
 
     public void startRequestSlavePhase() {
-        // TODO
+        // TODO @freek
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -573,7 +573,7 @@ public class MyProtocol{
     }
 
     public byte[] appendToBuffer(BigPacket packet) {
-        // TODO rewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
+        // todo ewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
         for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
             buffer.add(packet.payloadWithoutPadding[i]);
         }
