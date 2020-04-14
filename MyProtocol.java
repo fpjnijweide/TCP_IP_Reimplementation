@@ -33,6 +33,7 @@ public class MyProtocol{
     private List<Integer> unicastRouteToMaster;
     List<List<Integer>> unicastRoutes;
     private int current_master;
+    private List<SmallPacket> requestPackets = new ArrayList<>();
 
 
     public enum State{
@@ -44,7 +45,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER;
     }
 
     public class SmallPacket{
@@ -522,8 +523,24 @@ public class MyProtocol{
         postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
     }
 
-    public void startRequestMasterPhase() {
-        // TODO @freek
+    public void startRequestMasterPhase() throws InterruptedException {
+        setState(State.REQUEST_MASTER);
+        requestPackets.clear();
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(current_master);
+        int request_phase_length = 0;
+
+        for (int i = sourceIP; i < all_ips.size(); i++) {
+            if (all_ips.get(i)<=highest_assigned_ip) {
+                request_phase_length += 1; // Timeslot that a node sends.
+                request_phase_length += unicastRoutes.get(i).size();
+            }
+
+        }
+
+
+        wait(request_phase_length*SHORT_PACKET_TIMESLOT);
+        startPostRequestMasterPhase();
     }
 
     public void startRequestSlavePhase() throws InterruptedException {
@@ -543,7 +560,7 @@ public class MyProtocol{
         int bit_1_and_2 = how_many_timeslots_do_we_want & 0b1100;
         int bit_3_and_4 = how_many_timeslots_do_we_want & 0b0011;
         int link_topology_bits = getLinkTopologyBits();
-        int link_awareness_bits = getLinkAwarenessBits(); // TODO we might not want to use this, and use hops/IP instead. We can still prioritize each node's own info in post-request phase.
+        int link_awareness_bits = getLinkAwarenessBits(); // TODO @Freek we might not want to use this, and use hops/IP instead. We can still prioritize each node's own info in post-request phase.
 
 
         boolean first_awareness_bit = (link_awareness_bits & 0b100) >> 2 == 1;
@@ -553,15 +570,21 @@ public class MyProtocol{
         SmallPacket packet = new SmallPacket(bit_1_and_2,bit_3_and_4,final_bits,first_awareness_bit,true,false,second_awareness_bit,false);
         sendSmallPacket(packet);
 
-        int delay_until_post_request_phase = all_ips.size()-sourceIP-1;
+        int delay_until_post_request_phase = 0;
 
         for (int i = sourceIP; i < all_ips.size(); i++) {
-            delay_until_post_request_phase += unicastRoutes.get(i).size();
+            if (all_ips.get(i)<=highest_assigned_ip) {
+                if (i>sourceIP) {
+                    delay_until_post_request_phase += 1; // Timeslot that a node sends.
+                }
+                delay_until_post_request_phase += unicastRoutes.get(i).size();
+            }
+
         }
 
         timer = new Timer(delay_until_post_request_phase, new ActionListener() {
             @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO we can also just have this trigger by receiving the packet
+            public void actionPerformed(ActionEvent arg0) { // TODO @Freek we can also just have this trigger by receiving the packet
                 if (state==State.DISCOVERY) {
                     try {
                         startPostRequestSlavePhase();
@@ -906,6 +929,9 @@ public class MyProtocol{
                             }
                         }
                 }
+                break;
+            case REQUEST_MASTER:
+                // TODO store packets we get for the post request phase. negotiation phase code for this
                 break;
             case REQUEST_SLAVE:
 
