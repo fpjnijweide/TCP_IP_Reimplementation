@@ -409,9 +409,6 @@ public class MyProtocol{
         return decodePermutationOfThree(order, all_ips);
     }
 
-    // TODO implement read side of all of these
-
-
     private int getUnicastScheme(int sourceIP) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         int[] unicast_route_number = new int[3];
@@ -719,7 +716,7 @@ public class MyProtocol{
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
                                 timer.stop();
                                 try {
-                                    startPostNegotiationSlavePhase(packet); // TODO implement ack nr is forwarding route and hops
+                                    startPostNegotiationSlavePhase(packet);
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
                                 }
