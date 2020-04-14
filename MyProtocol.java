@@ -27,6 +27,7 @@ public class MyProtocol{
     public int LONG_PACKET_TIMESLOT = 1500;
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
+    private List<SmallPacket> negotiatedPackets = new ArrayList<>();
 
     public enum State{
         NULL,
@@ -256,7 +257,6 @@ public class MyProtocol{
             this.negotiation_phase_length = new_negotiation_phase_length;
         }
         exponential_backoff = 1;
-        // TODO decrement every time we switch master node instead of just only if you are master
         if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
             this.negotiation_phase_length /= 2;
         }
@@ -268,6 +268,7 @@ public class MyProtocol{
 
     private void startNegotiationMasterPhase() throws InterruptedException {
         setState(State.NEGOTIATION_MASTER);
+        negotiatedPackets.clear();
         wait(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT);
         startPostNegotiationMasterPhase();
     }
@@ -275,9 +276,16 @@ public class MyProtocol{
     private void startPostNegotiationMasterPhase() {
         setState(State.POST_NEGOTIATION_MASTER);
         // todo collect all the packets from buffer..?
+        // todo implement
+    }
+    private void startTimingSlavePhase() {
+        startTimingSlavePhase(0);
     }
 
-    private void startTimingSlavePhase() {
+    private void startTimingSlavePhase(int new_negotiation_phase_length) {
+        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
+            this.negotiation_phase_length /= 2;
+        }
         setState(State.TIMING_SLAVE);
         exponential_backoff = 1;
         timer = new Timer(10000, new ActionListener() {
@@ -336,7 +344,6 @@ public class MyProtocol{
                 if (state==State.WAITING_FOR_TIMING_STRANGER) {
                     exponential_backoff = 1;
                     startDiscoveryPhase(exponential_backoff);
-
                 }
             }
         });
@@ -497,7 +504,7 @@ public class MyProtocol{
                             timer.stop();
                             exponential_backoff*=2;
                             startDiscoveryPhase(exponential_backoff);
-                        } else if (packet.broadcast && packet.SYN) { // timing master packet
+                        } else if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) { // timing master packet
                             timer.stop();
                             startTimingStrangerPhase(packet.ackNum);
                         }
@@ -519,7 +526,7 @@ public class MyProtocol{
                             startDiscoveryPhase(exponential_backoff);
                         }
 
-                        if (packet.broadcast && packet.SYN) {
+                        if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
                             timer.stop();
                             startTimingStrangerPhase(packet.ackNum);
                         }
@@ -535,23 +542,55 @@ public class MyProtocol{
             case TIMING_SLAVE:
                 switch (type) {
                     case DATA_SHORT:
-                        // TODO als je een post-negotiation packet krijgt, cancel timing enzo en ga naar de post_negotiation/request phase?
-
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                            if (!packet.SYN && packet.sourceIP == packet.destIP) {
+                                startPostNegotiationSlavePhase(packet); // TODO implement ack nr is forwarding route and hops
+                            }
+                        }
                         break;
                 }
                 break;
             case NEGOTIATION_MASTER:
-                // todo REAGEER OP negotiation packets en store ze?
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (packet.broadcast && packet.negotiate && !packet.ackFlag && !packet.request) {
+                            negotiatedPackets.add(packet);
+                        }
+                        break;
+                }
+
                 break;
             case NEGOTIATION_STRANGER:
-                // TODO read side: if you successfully sent something go to NEGOTATION_STRANGER_DONE phase
-                // TODO als je een andere negotiation packet krijgt: stil zijn
+//                switch (type) {
+//                    case DATA_SHORT:
+//                        System.out.println("DATA_SHORT");
+//                        printByteBuffer(bytes, false); //Just print the data
+//                        SmallPacket packet = readSmallPacket(bytes);
+//                        break;
+//                }
+
                 break;
             case WAITING_FOR_TIMING_STRANGER:
-                // todo IMPLEMENT receiving side: if you get another timing packet, go back to timing stranger phase
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
+                            timer.stop();
+                            startTimingStrangerPhase(packet.ackNum);
+                        }
+                        break;
+                }
                 break;
             case POST_NEGOTIATION_MASTER:
-                // TODO ??
+                // TODO we shouldn't receive anything here?
                 break;
             case READY:
                 switch (type) {
@@ -611,10 +650,11 @@ public class MyProtocol{
                 if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
                     SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
                     if (packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) {
-                        // Our negotiation packet had interference
-                        //  TODO bewaar een negotiation message niet, wacht tot volgende ronde met lage prob?
+                        // Our negotiation packet had interference, get rid of it
+                        messagesToSend.remove(0);
                     } else if (packet.negotiate && packet.broadcast && packet.request && !packet.ackFlag) {
                         // Our discovery packet had interference
+                        messagesToSend.remove(0);
                         timer.stop();
                         exponential_backoff*=2;
                         startDiscoveryPhase(exponential_backoff);
@@ -622,8 +662,10 @@ public class MyProtocol{
                         // ACK packet. Get rid of it
                         messagesToSend.remove(0);
                     } else if (packet.broadcast && packet.SYN) {
+                        messagesToSend.remove(0);
                         // Timing master packet. Rebroadcast!
                         try {
+                            timer.stop();
                             startTimingMasterPhase(negotiation_phase_length);
                         } catch (InterruptedException e) {
                             e.printStackTrace();
@@ -634,6 +676,11 @@ public class MyProtocol{
                 }
 
             } else {
+                SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
+                if (state==State.NEGOTIATION_STRANGER && packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) { // TODO possibly incorrect if
+                    startNegotiationStrangerDonePhase();
+                }
+
                 if (sentMessages.size() >= 1000) {
                     sentMessages.remove(0);
                 }
