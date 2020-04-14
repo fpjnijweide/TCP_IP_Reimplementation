@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -21,6 +22,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class MyProtocol{
     private int tiebreaker;
+    private Date date = new Date();
+    private long timeMilli;
 
     public enum State{
         NULL,
@@ -101,7 +104,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 8400;
+    private static int frequency = 5400;
     private int exponential_backoff = 1;
 
     public void setState(State state) {
@@ -147,6 +150,8 @@ public class MyProtocol{
                         startDiscoveryPhase(exponential_backoff);
                     } else if (textString.equals("DISCOVERYNOW")) {
                         startDiscoveryPhase(0);
+                    } else if (textString.equals("SMALLPACKET")) {
+                        sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
                     } else {
                         for (int i = 0; i < read-1; i+=28) {
                             byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
@@ -236,11 +241,15 @@ public class MyProtocol{
     private void startTimingMasterPhase() throws InterruptedException {
         setState(State.TIMING_MASTER);
         exponential_backoff = 1;
-        // todo geef lengte negotiation phase aan in acknum.
-        int ackNumTodo = 0; //TODO fix
-        SmallPacket packet = new SmallPacket(0,0,ackNumTodo,false,false,false,true,true);
+        int ackNum = 0; //TODO geef lengte negotiation phase aan in acknum?
+        SmallPacket packet = new SmallPacket(0,0,ackNum,false,false,false,true,true);
         sendSmallPacket(packet);
-        // TODO go to negotiation phase master
+        startNegotiationMasterPhase();
+    }
+
+    private void startNegotiationMasterPhase() {
+        // TODO implement
+        // TODO bek dicht houden voor 1 cycle lang
     }
 
     private void startTimingSlavePhase() {
@@ -464,9 +473,11 @@ public class MyProtocol{
                 switch (type) {
                     case BUSY:
                         System.out.println("BUSY");
+                        timeMilli = System.currentTimeMillis();
                         break;
                     case FREE:
-                        System.out.println("FREE");
+                        System.out.println("FREE. Delay since previous:" + (System.currentTimeMillis() - timeMilli));
+                        timeMilli = System.currentTimeMillis();
                         break;
                     case DATA:
                         System.out.println("DATA");
