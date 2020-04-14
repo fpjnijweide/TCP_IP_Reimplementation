@@ -1,6 +1,5 @@
 import client.*;
 
-import javax.swing.*;
 import javax.swing.Timer;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -378,14 +377,28 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
-    private int getMulticastForwarding() {
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
-        all_ips.remove(sourceIP);
+    private List<Integer> getMulticastForwardingRoute() {
+        // TODO implement
+        return new ArrayList<>();
+    }
 
-        int first_hop = -1; // TODO actually get proper hop from topology somehow
-        int second_hop = -2; // TODO actually get proper hop from topology somehow
-        int route = encodePermutationOfThree(first_hop,second_hop);
-        return route;
+    private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(ip);
+
+        int first_hop = route_ips.size() > 0? route_ips.get(0) : -1;
+        int second_hop = route_ips.size() > 1? route_ips.get(1) : -1;
+
+        int first_hop_index = all_ips.indexOf(first_hop);
+        int second_hop_index = all_ips.indexOf(second_hop);
+
+        return encodePermutationOfThree(first_hop_index,second_hop_index);
+    }
+
+    public List<Integer> getMulticastForwardingRouteFromOrder(int ip, int order) {
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(ip);
+        return decodePermutationOfThree(order, all_ips);
     }
 
     // TODO implement read side of all of these
@@ -393,25 +406,33 @@ public class MyProtocol{
     private void startPostNegotiationMasterPhase() throws InterruptedException {
         setState(State.POST_NEGOTIATION_MASTER);
 
-
-        int route = getMulticastForwarding();
+        List<Integer> route_ips = getMulticastForwardingRoute();
+        int route = getMulticastForwardingRouteNumber(sourceIP,route_ips);
 
         int hops = 0;
         int first_packet_ack_nr = hops << 6 | route;
         SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
         sendSmallPacket(first_packet);
 
+        // TODO wait for forwarding
+
         for (SmallPacket negotiation_packet: negotiatedPackets) {
             int new_ip = highest_assigned_ip+1;
             SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, negotiation_packet.ackNum,true,false,true,false,true);
             sendSmallPacket(promotionPacket);
             highest_assigned_ip++;
+
+            // TODO wait for forwarding
         }
         negotiatedPackets.clear();
 
-
+        SmallPacket final_packet = new SmallPacket(sourceIP,0,ack_num_todo,true,false,true,true,true)
+        sendPacket(final_packet);
         // TODO send out final packet
+        // TODO wait for forwarding
+        // TODO go to next state
     }
+
 
 
 
@@ -419,14 +440,17 @@ public class MyProtocol{
         setState(State.POST_NEGOTIATION_SLAVE);
         // TODO implement
         // TODO do something with the packets you get
-        // TODO properly forward, increment hops
+        // TODO properly forward, increment hops but only for fist packet
+        // TODO use getMulticastForwardingRouteFromOrder for this. Check if our position in that list == hops. If so, forward.
+        // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
     }
 
     private void startPostNegotiationStrangerPhase(SmallPacket packet) {
         setState(State.POST_NEGOTIATION_STRANGER);
         // TODO implement
         // TODO do something with the packets you get
-        // TODO properly forward
+        // TODO properly forward, increment hops but only for fist packet
+        // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
