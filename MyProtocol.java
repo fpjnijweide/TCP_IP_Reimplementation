@@ -23,11 +23,16 @@ public class MyProtocol{
     private Date date = new Date();
     private long timeMilli;
     private int negotiation_phase_length = 8;
-    public int SHORT_PACKET_TIMESLOT = 251;
-    public int LONG_PACKET_TIMESLOT = 1500;
+    public int SHORT_PACKET_TIMESLOT = 300;
+    public int LONG_PACKET_TIMESLOT = 1600;
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
+    int last_ack_sent = 0;
+    int packet_number = 0;
+    int last_seqNum_sent = 0;
+    int last_ack_received = 0;
+    int biggest_sendable_packet = 15;
 
     public enum State{
         NULL,
@@ -111,6 +116,11 @@ public class MyProtocol{
     private static int frequency = 5400;
     private int exponential_backoff = 1;
 
+    static final int k = 256;
+
+    List<Boolean> acknowledged = new ArrayList<>(Collections.nCopies(k, false));
+    List<Boolean> received = new ArrayList<>(Collections.nCopies(k, false));
+
     public void setState(State state) {
         this.state = state;
         System.out.println("NEW STATE: " +state.toString());
@@ -156,9 +166,11 @@ public class MyProtocol{
                     text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
                     String textString = new String(text.array(), StandardCharsets.US_ASCII);
                     if (textString.equals("DISCOVERY")){
-                        startDiscoveryPhase(exponential_backoff);
+                        //startDiscoveryPhase(exponential_backoff);
+                        int x  = 1;
                     } else if (textString.equals("DISCOVERYNOW")) {
-                        startDiscoveryPhase(0);
+                        //startDiscoveryPhase(0);
+                        int x  =2;
                     } else if (textString.equals("SMALLPACKET")) {
                         sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
                     } else {
@@ -168,20 +180,53 @@ public class MyProtocol{
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
+
+
                             // TODO @Martijn implement sliding window here, sending side
 
-                            // TODO proper sequence number
-                            // TODO last ack received als field bijhouden
-                            // TODO last seq nr sent als field bjihouden
-                            // TODO SWS bijhouden als field
-                            // todo LAR+SWS (biggest sendable packet) bijhouden als field
+                            // done proper sequence number
+                            // done last ack received als field bijhouden
+                            // done last seq nr sent als field bjihouden
+                            // done SWS bijhouden als field
+                            // done LAR+SWS (biggest sendable packet) bijhouden als field
                             // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
-
 
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
-                            sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size));
 
+
+
+                            if(packet_number < last_ack_received || packet_number > biggest_sendable_packet){
+                                System.out.println("packet not in sending window");
+                            }
+                            else {
+                                sendPacket(new BigPacket(sourceIP, 0, 0, false, false, false, false, true, partial_text, packet_number, morePacketsFlag, size));
+                                last_seqNum_sent = packet_number;
+                                acknowledged.set(packet_number, false);
+                                if (!morePacketsFlag) {
+                                    packet_number = 0;
+                                } else {
+                                    packet_number++;
+                                }
+                            }
+
+
+                            Message m = receivedQueue.take();
+                            ByteBuffer data = m.getData();
+                            byte [] bytes = null;
+                            if (data != null) {
+                                bytes = data.array();
+
+                            }
+                            SmallPacket ackPacket = readSmallPacket(bytes);
+                            last_ack_received = ackPacket.ackNum;
+                            int SWS = 15;
+                            biggest_sendable_packet = last_ack_received + SWS;
+
+                            acknowledged.set(last_ack_received,true);
+
+
+                            //TODO timeout start
                         }
                     }
                 }
@@ -194,26 +239,26 @@ public class MyProtocol{
         }        
     }
 
-    private void startDiscoveryPhase(int exponential_backoff) {
-        setState(State.DISCOVERY);
-        sourceIP = -1;
-        tiebreaker = new Random().nextInt(1<<7);
-        timer = new Timer(new Random().nextInt(2000*exponential_backoff + 1)+8000*exponential_backoff, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) {
-                if (state==State.DISCOVERY) {
-                    try {
-                        startSentDiscoveryPhase();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
-    }
+//    private void startDiscoveryPhase(int exponential_backoff) {
+//        setState(State.DISCOVERY);
+//        sourceIP = -1;
+//        tiebreaker = new Random().nextInt(1<<7);
+//        timer = new Timer(new Random().nextInt(2000*exponential_backoff + 1)+8000*exponential_backoff, new ActionListener() {
+//            @Override
+//            public void actionPerformed(ActionEvent arg0) {
+//                if (state==State.DISCOVERY) {
+//                    try {
+//                        sendDiscoveryPacket();
+//                    } catch (InterruptedException e) {
+//                        e.printStackTrace();
+//                    }
+//
+//                }
+//            }
+////        });
+//        timer.setRepeats(false); // Only execute once
+//        timer.start(); // Go go go!
+//    }
 
     public void sendPacket(BigPacket packet) throws InterruptedException {
         ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
@@ -304,28 +349,28 @@ public class MyProtocol{
 
 
 
-    private void startTimingSlavePhase() {
-        startTimingSlavePhase(0);
-    }
+//    private void startTimingSlavePhase() {
+//        startTimingSlavePhase(0);
+//    }
 
-    private void startTimingSlavePhase(int new_negotiation_phase_length) {
-        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
-            this.negotiation_phase_length /= 2;
-        }
-        setState(State.TIMING_SLAVE);
-        exponential_backoff = 1;
-        timer = new Timer(10000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
-                if (state==State.TIMING_SLAVE) {
-                    exponential_backoff = 1;
-                    startDiscoveryPhase(exponential_backoff);
-
-                }
-            }
-        });
-
-    }
+//    private void startTimingSlavePhase(int new_negotiation_phase_length) {
+//        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
+//            this.negotiation_phase_length /= 2;
+//        }
+//        setState(State.TIMING_SLAVE);
+//        exponential_backoff = 1;
+//        timer = new Timer(10000, new ActionListener() {
+//            @Override
+//            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+//                if (state==State.TIMING_SLAVE) {
+//                    exponential_backoff = 1;
+//                    startDiscoveryPhase(exponential_backoff);
+//
+//                }
+//            }
+//        });
+//
+//    }
 
     private void startTimingStrangerPhase(int negotiation_length) {
         setState(State.TIMING_STRANGER);
@@ -355,26 +400,26 @@ public class MyProtocol{
                 wait(SHORT_PACKET_TIMESLOT);
             }
         }
-        startWaitingForTimingStrangerPhase();
+       // startWaitingForTimingStrangerPhase();
 
 
 
     }
 
-    private void startWaitingForTimingStrangerPhase() {
-        setState(State.WAITING_FOR_TIMING_STRANGER);
-        exponential_backoff = 1;
-        timer = new Timer(20000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
-                if (state==State.WAITING_FOR_TIMING_STRANGER) {
-                    exponential_backoff = 1;
-                    startDiscoveryPhase(exponential_backoff);
-                }
-            }
-        });
-
-    }
+//    private void startWaitingForTimingStrangerPhase() {
+//        setState(State.WAITING_FOR_TIMING_STRANGER);
+//        exponential_backoff = 1;
+//        timer = new Timer(20000, new ActionListener() {
+//            @Override
+//            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+//                if (state==State.WAITING_FOR_TIMING_STRANGER) {
+//                    exponential_backoff = 1;
+//                    startDiscoveryPhase(exponential_backoff);
+//                }
+//            }
+//        });
+//
+//    }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
         byte first_byte = (byte) (packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0));
@@ -501,7 +546,7 @@ public class MyProtocol{
         }
     }
 
-    private void processMessage(ByteBuffer data, MessageType type) {
+    private void processMessage(ByteBuffer data, MessageType type) throws InterruptedException {
         byte [] bytes = null;
         if (data != null) {
             bytes = data.array();
@@ -529,7 +574,7 @@ public class MyProtocol{
                         if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                             timer.stop();
                             exponential_backoff*=2;
-                            startDiscoveryPhase(exponential_backoff);
+                            //startDiscoveryPhase(exponential_backoff);
                         } else if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) { // timing master packet
                             timer.stop();
                             startTimingStrangerPhase(packet.ackNum);
@@ -549,7 +594,7 @@ public class MyProtocol{
                         if ((other_discovery_packet && ( tiebreaker <= packet.ackNum) ) || ( discovery_denied_packet && packet.ackNum == tiebreaker)) {
                             timer.stop();
                             exponential_backoff*=2;
-                            startDiscoveryPhase(exponential_backoff);
+                            //startDiscoveryPhase(exponential_backoff);
                         }
 
                         if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
@@ -622,6 +667,7 @@ public class MyProtocol{
                 switch (type) {
 
                     case DATA:
+
                         System.out.println("DATA");
                         BigPacket packet = readBigPacket(bytes);
 
@@ -634,18 +680,39 @@ public class MyProtocol{
                             printByteBuffer(bytes, false); //Just print the data
                         }
 
-                        System.out.println("source IP from this packet is" + packet.sourceIP);
-                        System.out.println("packet sent to " + packet.destIP);
+                        System.out.println("source IP from this packet is " + packet.sourceIP);
+                        System.out.println("packetnumber is " + packet.seqNum);
 
                         // TODO @Martijn sliding window protocol receiving side
 
-                        // TODO stuur ACKs
-                        // TODO last (cumulative) ack sent bijhouden als field
-                        // TODO last packet received bijhouden als field
-                        // TODO LAS + RWS = einde van je window, bijhouden als field
-                        // TODO lijst aan booleans met welke packets je al binnen hebt binnen je window
+                        // done stuur ACKs
+                        // done last (cumulative) ack sent bijhouden als field
+                        // done last packet received bijhouden als field
+                        // done LAS + RWS = einde van je window, bijhouden als field
+                        // done lijst aan booleans met welke packets je al binnen hebt binnen je window
 
+                        int RWS = 15;
+                        int end_of_receiver_window = last_ack_sent + RWS;
+                        last_ack_sent = packet.ackNum;
 
+                        if (packet.ackNum <= end_of_receiver_window) {
+                            if (!packet.ackFlag) {
+                                int last_pack_received = packet.seqNum;
+                                if (!received.get(packet.seqNum)) {
+                                    received.set(packet.seqNum, true);
+                                }
+                                packet.ackNum = packet.seqNum;
+                                packet.ackFlag = true;
+                                sendSmallPacket(new SmallPacket(packet.destIP, packet.sourceIP, packet.seqNum, packet.ackFlag, false, false, false, false));
+
+                            } else {
+                                if (!acknowledged.get(packet.ackNum)) {
+                                    acknowledged.set(packet.ackNum, true);
+                                }
+                                System.out.println("ACK received from " + packet.sourceIP);
+                            }
+                        }
+                        else{ System.out.println("Packet with seq. number " + packet.ackNum + " is discarded");}
                         break;
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
@@ -674,9 +741,9 @@ public class MyProtocol{
         boolean interference = false;
         if (sending) {
             sending = false;
-            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > 251) {
+            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > SHORT_PACKET_TIMESLOT) {
                 interference = true;
-            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > 1500) {
+            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > LONG_PACKET_TIMESLOT) {
                 interference = true;
 
             }
@@ -694,7 +761,7 @@ public class MyProtocol{
                         messagesToSend.remove(0);
                         timer.stop();
                         exponential_backoff*=2;
-                        startDiscoveryPhase(exponential_backoff);
+                       // startDiscoveryPhase(exponential_backoff);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
                         messagesToSend.remove(0);
