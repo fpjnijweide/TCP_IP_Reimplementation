@@ -25,6 +25,10 @@ public class MyProtocol{
     private Date date = new Date();
     private long timeMilli;
     private int negotiation_phase_length = 8;
+    public int SHORT_PACKET_TIMESLOT = 251;
+    public int LONG_PACKET_TIMESLOT = 1500;
+    private int negotiation_phase_stranger_length;
+    private int negotiation_phases_encountered = 0;
 
     public enum State{
         NULL,
@@ -35,7 +39,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER;
     }
 
     public class SmallPacket{
@@ -190,7 +194,7 @@ public class MyProtocol{
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.DISCOVERY) {
                     try {
-                        sendDiscoveryPacket();
+                        startSentDiscoveryPhase();
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -222,14 +226,10 @@ public class MyProtocol{
         sendingQueue.put(msg);
     }
 
-    private void sendDiscoveryPacket() throws InterruptedException {
+    private void startSentDiscoveryPhase() throws InterruptedException {
         SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
         sendSmallPacket(packet);
         setState(State.SENT_DISCOVERY);
-        startSentDiscoveryPhase();
-    }
-
-    private void startSentDiscoveryPhase() {
         timer = new Timer(2000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
@@ -253,23 +253,30 @@ public class MyProtocol{
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
+        setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
             this.negotiation_phase_length = new_negotiation_phase_length;
         }
-        setState(State.TIMING_MASTER);
         exponential_backoff = 1;
+        // TODO decrement every time we switch master node instead of just only if you are master
         if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
             this.negotiation_phase_length /= 2;
         }
 
-        SmallPacket packet = new SmallPacket(0,0,this.negotiation_phase_length,false,false,false,true,true);
+        SmallPacket packet = new SmallPacket(sourceIP,0,this.negotiation_phase_length,false,false,false,true,true);
         sendSmallPacket(packet);
         startNegotiationMasterPhase();
     }
 
-    private void startNegotiationMasterPhase() {
-        // TODO implement
-        // TODO bek dicht houden voor 1 cycle lang
+    private void startNegotiationMasterPhase() throws InterruptedException {
+        setState(State.NEGOTIATION_MASTER);
+        wait(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT);
+        startPostNegotiationMasterPhase();
+    }
+
+    private void startPostNegotiationMasterPhase() {
+        setState(State.POST_NEGOTIATION_MASTER);
+        // todo collect all the packets from buffer..?
     }
 
     private void startTimingSlavePhase() {
@@ -277,7 +284,7 @@ public class MyProtocol{
         exponential_backoff = 1;
         timer = new Timer(10000, new ActionListener() {
             @Override
-            public void actionPerformed(ActionEvent arg0) {
+            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 if (state==State.SENT_DISCOVERY) {
                     exponential_backoff = 1;
                     startDiscoveryPhase(exponential_backoff);
@@ -288,17 +295,54 @@ public class MyProtocol{
 
     }
 
-    private void startTimingStrangerPhase() {
+    private void startTimingStrangerPhase(int negotiation_length) {
         setState(State.TIMING_STRANGER);
         exponential_backoff = 1;
-        startNegotiationStrangerPhase();
+        this.negotiation_phase_stranger_length = negotiation_length;
+        try {
+            startNegotiationStrangerPhase();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
     }
 
-    private void startNegotiationStrangerPhase(){
+    private void startNegotiationStrangerPhase() throws InterruptedException {
         setState(State.NEGOTIATION_STRANGER);
-        // TODO roll a random number*(1 + timing_phases_encountered/10). If above 0.25, go for it. Gebruik negotiation phase lengte hiervoor. Aparte negotiation structuur?
-        // TODO IF YOU went for it, go to SENT_NEGOTIATION phase
-        // TODO else go to WAITING_FOR_TIMING_STRANGER
+        this.negotiation_phases_encountered++;
+        for (int i = 0; i < this.negotiation_phase_stranger_length; i++) {
+            if (state!=State.NEGOTIATION_STRANGER) {
+                return;
+            }
+            float roll = new Random().nextFloat() *(1+ ((float)this.negotiation_phases_encountered-1)/10);
+            if (roll > 0.25) {
+                tiebreaker = new Random().nextInt(1 << 7);
+                SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,false,true,false,true);
+                sendSmallPacket(packet);
+            } else {
+                wait(SHORT_PACKET_TIMESLOT);
+            }
+        }
+        startWaitingForTimingStrangerPhase();
+
+
+
+    }
+
+    private void startWaitingForTimingStrangerPhase() {
+        setState(State.WAITING_FOR_TIMING_STRANGER);
+        exponential_backoff = 1;
+        timer = new Timer(20000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+                if (state==State.WAITING_FOR_TIMING_STRANGER) {
+                    exponential_backoff = 1;
+                    startDiscoveryPhase(exponential_backoff);
+
+                }
+            }
+        });
+
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -457,7 +501,7 @@ public class MyProtocol{
                             startDiscoveryPhase(exponential_backoff);
                         } else if (packet.broadcast && packet.SYN) { // timing master packet
                             timer.stop();
-                            startTimingStrangerPhase();
+                            startTimingStrangerPhase(packet.ackNum);
                         }
                         break;
                 }
@@ -479,7 +523,7 @@ public class MyProtocol{
 
                         if (packet.broadcast && packet.SYN) {
                             timer.stop();
-                            startTimingStrangerPhase();
+                            startTimingStrangerPhase(packet.ackNum);
                         }
                         break;
                 }
@@ -488,16 +532,23 @@ public class MyProtocol{
                 // is eigenlijk zo kort dat er niks kan gebeuren
                 break;
             case TIMING_STRANGER:
-                // is eigenlijk zo kort dat er niks kan gebeuren
+                // is zo kort dat er niks kan gebeuren
                 break;
             case TIMING_SLAVE:
                 // TODO als je een post-negotiation packet krijgt, cancel timing enzo en ga naar de post_negotiation/request phase?
                 break;
             case NEGOTIATION_MASTER:
-                // todo REAGEER OP negotiation packets
+                // todo REAGEER OP negotiation packets en store ze?
                 break;
             case NEGOTIATION_STRANGER:
+                // TODO read side: if you successfully sent something go to NEGOTATION_STRANGER_DONE phase
                 // TODO als je een andere negotiation packet krijgt: stil zijn
+                break;
+            case WAITING_FOR_TIMING_STRANGER:
+                // todo IMPLEMENT receiving side: if you get another timing packet, go back to timing stranger phase
+                break;
+            case POST_NEGOTIATION_MASTER:
+                // TODO ??
                 break;
             case READY:
                 switch (type) {
