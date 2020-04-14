@@ -1,15 +1,13 @@
 import client.*;
 
 import javax.swing.*;
+import javax.swing.Timer;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.nio.ByteBuffer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -285,7 +283,7 @@ public class MyProtocol{
         timer = new Timer(10000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
-                if (state==State.SENT_DISCOVERY) {
+                if (state==State.TIMING_SLAVE) {
                     exponential_backoff = 1;
                     startDiscoveryPhase(exponential_backoff);
 
@@ -535,7 +533,12 @@ public class MyProtocol{
                 // is zo kort dat er niks kan gebeuren
                 break;
             case TIMING_SLAVE:
-                // TODO als je een post-negotiation packet krijgt, cancel timing enzo en ga naar de post_negotiation/request phase?
+                switch (type) {
+                    case DATA_SHORT:
+                        // TODO als je een post-negotiation packet krijgt, cancel timing enzo en ga naar de post_negotiation/request phase?
+
+                        break;
+                }
                 break;
             case NEGOTIATION_MASTER:
                 // todo REAGEER OP negotiation packets en store ze?
@@ -642,6 +645,50 @@ public class MyProtocol{
 
     }
 
+    public <E> List<E> permutationOfThree(int order, List<E> list) {
+        // Obviously these are just permutations of a list of 3 items. Using some abstract algebra, you wouldn't need to hardcode this
+        // But that is outside the scope of this course
+         switch (order) {
+             case 0:
+                 return new ArrayList<E>(){};
+             case 1:
+                 return new ArrayList<E>(Arrays.asList(list.get(0)));
+             case 2:
+                 return new ArrayList<E>(Arrays.asList(list.get(1)));
+             case 3:
+                 return new ArrayList<E>(Arrays.asList(list.get(2)));
+             case 4:
+                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1)));
+             case 5:
+                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(2)));
+             case 6:
+                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));
+             case 7:
+                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(2)));
+             case 8:
+                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(0)));
+             case 9:
+                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(1)));
+         }
+        return null;
+    }
+
+    public <E> List<E> permutationOfTwo(int order, List<E> list) {
+        // See description of permutationOfThree
+        switch (order) {
+            case 0:
+                return new ArrayList<E>(){};
+            case 1:
+                return new ArrayList<E>(Arrays.asList(list.get(0)));
+            case 2:
+                return new ArrayList<E>(Arrays.asList(list.get(1)));
+            case 3:
+                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1)));
+            case 4:
+                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));
+        }
+        return null;
+    }
 
 }
 
