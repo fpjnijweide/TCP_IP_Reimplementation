@@ -1,4 +1,5 @@
 import client.*;
+import com.sun.deploy.net.MessageHeader;
 
 import javax.swing.Timer;
 import java.awt.event.ActionEvent;
@@ -29,6 +30,7 @@ public class MyProtocol{
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
     int highest_assigned_ip = -1;
     private List<Integer> postNegotiationSlaveforwardingScheme;
+    private List<Integer> unicastRouteToMaster;
 
     public enum State{
         NULL,
@@ -351,7 +353,7 @@ public class MyProtocol{
             }
             float roll = new Random().nextFloat() *(1+ ((float)this.negotiation_phases_encountered-1)/10);
             if (roll > 0.25) {
-                tiebreaker = new Random().nextInt(1 << 7);
+                tiebreaker = new Random().nextInt(1 << 5);
                 SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,false,true,false,true);
                 sendSmallPacket(packet);
             } else {
@@ -446,19 +448,24 @@ public class MyProtocol{
         sendSmallPacket(first_packet);
 
         wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        List<Integer> received_tiebreakers = new ArrayList<>();
 
         for (SmallPacket negotiation_packet: negotiatedPackets) {
             int new_ip = highest_assigned_ip+1;
-            SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, negotiation_packet.ackNum,true,false,true,false,true);
-            sendSmallPacket(promotionPacket);
-            highest_assigned_ip++;
-            wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+            int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
+            if (!received_tiebreakers.contains(received_tiebreaker)) { // TODO don't send stuff at all until we finished processing. Don't send any for duplicate tiebreakers.
+                received_tiebreakers.add(received_tiebreaker);
+                SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
+                sendSmallPacket(promotionPacket);
+                highest_assigned_ip++;
+                wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+            }
 
         }
         negotiatedPackets.clear();
 
         int unicast_scheme = getUnicastScheme(sourceIP);
-        SmallPacket final_packet = new SmallPacket(sourceIP,0,unicast_scheme,true,false,true,true,true);
+        SmallPacket final_packet = new SmallPacket(sourceIP,hops,unicast_scheme,true,false,true,true,true);
         sendSmallPacket(final_packet);
         wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
@@ -490,6 +497,14 @@ public class MyProtocol{
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
 
         postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
+    }
+
+    public void startRequestMasterPhase() {
+        // TODO
+    }
+
+    public void startRequestSlavePhase() {
+        // TODO
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -747,7 +762,7 @@ public class MyProtocol{
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
                                 timer.stop();
-                                startPostNegotiationStrangerPhase(packet); // TODO implement ack nr is forwarding route and hops
+                                startPostNegotiationStrangerPhase(packet);
                             }
                         }
                         break;
@@ -766,26 +781,59 @@ public class MyProtocol{
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
                                 highest_assigned_ip = packet.destIP;
-                                // TODO forward?
+                                int hops = packet.ackNum >> 5;
+                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                    // You have to forward this time
+                                    packet.ackNum += (1 << 5);
+                                    try {
+                                        sendSmallPacket(packet);
+                                    } catch (InterruptedException e) {
+                                        e.printStackTrace();
+                                    }
+                                }
                             } else if (packet.SYN) {
-                                // TODO FINAL PACKET
-                                // TODO forward?
+                                finalPostNegotiationHandler(packet);
                             }
                         }
                 }
-                // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
-                // TODO catch new packets somewhere else
-
-                // TODO use the multicast scheme to figure out when the request phase starts
                 break;
             case POST_NEGOTIATION_STRANGER:
-                // TODO handle received packets and set ip and such
-                // TODO actually IP!!
+                switch (type) {
+                    case DATA_SHORT:
+                        // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                            if (!packet.SYN && packet.sourceIP != packet.destIP) {
+                                if (sourceIP != -1) {
+                                    highest_assigned_ip = packet.destIP;
+                                }
+                                if ((packet.ackNum & 0b0011111 ) == tiebreaker) {
+                                    sourceIP = packet.destIP;
+                                    highest_assigned_ip = packet.destIP;
+                                }
 
-                highest_assigned_ip = 0; // TODO make this the IP we got on receiving side. actually implement shit
-                // TODO use the multicast scheme to figure out when the request phase starts
 
-                // TODO use the unicast scheme and highest assigned IP to figure out the exact timings of request phase
+                                int hops = packet.ackNum >> 5;
+                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                    // You have to forward this time
+                                    packet.ackNum += (1 << 5);
+                                    try {
+                                        sendSmallPacket(packet);
+                                    } catch (InterruptedException e) {
+                                        e.printStackTrace();
+                                    }
+                                }
+                            } else if (packet.SYN) {
+                                if (sourceIP != -1) {
+                                    finalPostNegotiationHandler(packet);
+                                } else {
+                                    throw new RuntimeException("Finished POST_NEGOTIATION_STRANGER without an IP. This really shouldn't happen");
+                                }
+                            }
+                        }
+                }
                 break;
             case READY:
                 switch (type) {
@@ -837,7 +885,52 @@ public class MyProtocol{
 
     }
 
+    private void finalPostNegotiationHandler(SmallPacket packet) {
+        // Handles slave/stranger side of final post negotiation phase packet
+        if (packet.SYN) {
+            List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+            List<List<Integer>> unicastRoutes = new ArrayList<>();
+            all_ips.remove(packet.sourceIP);
+            // 124 DEC is 444 PENT
+            int[] route_numbers = new int[]{(packet.ackNum / 25) % 5,(packet.ackNum / 5) % 5, packet.ackNum % 5};
 
+            for (int i = 0; i < route_numbers.length; i++) {
+
+                List<Integer> ip_list = new ArrayList<>(Arrays.asList(0,1,2,3));
+                ip_list.remove(packet.sourceIP);
+                ip_list.remove(i); // this will remove by index, not element
+                int order = route_numbers[i];
+                List<Integer> unicastRoute = decodePermutationOfTwo(order, ip_list);
+                unicastRoutes.set(i,unicastRoute);
+            }
+            unicastRouteToMaster = unicastRoutes.get(all_ips.indexOf(sourceIP));
+
+            int hops = packet.destIP;
+            if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                // You have to forward this time
+                packet.destIP += 1;
+                try {
+                    sendSmallPacket(packet);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                try {
+                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+            } else {
+                try {
+                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            startRequestSlavePhase();
+
+        }
+    }
 
 
     private void detectInterference(long delay) {
