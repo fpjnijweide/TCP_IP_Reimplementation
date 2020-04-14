@@ -24,6 +24,7 @@ public class MyProtocol{
     private int tiebreaker;
     private Date date = new Date();
     private long timeMilli;
+    private int negotiation_phase_length = 8;
 
     public enum State{
         NULL,
@@ -235,7 +236,7 @@ public class MyProtocol{
                 if (state==State.SENT_DISCOVERY) {
                     sourceIP = 0;
                     try {
-                        startTimingMasterPhase();
+                        startTimingMasterPhase(8);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -248,10 +249,20 @@ public class MyProtocol{
     }
 
     private void startTimingMasterPhase() throws InterruptedException {
+        startTimingMasterPhase(0);
+    }
+
+    private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
+        if (new_negotiation_phase_length > 0) {
+            this.negotiation_phase_length = new_negotiation_phase_length;
+        }
         setState(State.TIMING_MASTER);
         exponential_backoff = 1;
-        int ackNum = 0; //TODO geef lengte negotiation phase aan in acknum?
-        SmallPacket packet = new SmallPacket(0,0,ackNum,false,false,false,true,true);
+        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
+            this.negotiation_phase_length /= 2;
+        }
+
+        SmallPacket packet = new SmallPacket(0,0,this.negotiation_phase_length,false,false,false,true,true);
         sendSmallPacket(packet);
         startNegotiationMasterPhase();
     }
@@ -280,7 +291,6 @@ public class MyProtocol{
     private void startTimingStrangerPhase() {
         setState(State.TIMING_STRANGER);
         exponential_backoff = 1;
-        // TODO rebroadcast?
         startNegotiationStrangerPhase();
     }
 
@@ -560,7 +570,7 @@ public class MyProtocol{
                     } else if (packet.broadcast && packet.SYN) {
                         // Timing master packet. Rebroadcast!
                         try {
-                            startTimingMasterPhase();
+                            startTimingMasterPhase(negotiation_phase_length);
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
