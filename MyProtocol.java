@@ -28,6 +28,7 @@ public class MyProtocol{
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
+    int highest_assigned_ip = -1;
 
     public enum State{
         NULL,
@@ -196,6 +197,7 @@ public class MyProtocol{
 
     private void startDiscoveryPhase(int exponential_backoff) {
         setState(State.DISCOVERY);
+        highest_assigned_ip = -1;
         sourceIP = -1;
         tiebreaker = new Random().nextInt(1<<7);
         timer = new Timer(new Random().nextInt(2000*exponential_backoff + 1)+8000*exponential_backoff, new ActionListener() {
@@ -262,6 +264,7 @@ public class MyProtocol{
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
+        highest_assigned_ip = 0;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
             this.negotiation_phase_length = new_negotiation_phase_length;
@@ -274,76 +277,6 @@ public class MyProtocol{
         SmallPacket packet = new SmallPacket(sourceIP,0,this.negotiation_phase_length,false,false,false,true,true);
         sendSmallPacket(packet);
         startNegotiationMasterPhase();
-    }
-
-    private void startNegotiationMasterPhase() throws InterruptedException {
-        setState(State.NEGOTIATION_MASTER);
-        negotiatedPackets.clear();
-        wait(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT);
-        startPostNegotiationMasterPhase();
-    }
-
-
-
-
-    private void startNegotiationStrangerDonePhase() {
-        setState(State.NEGOTIATION_STRANGER_DONE);
-        timer = new Timer(5000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) {
-                if (state==State.NEGOTIATION_STRANGER_DONE) {
-                    startWaitingForTimingStrangerPhase();
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
-    }
-
-    private int getMulticastForwarding() {
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
-        all_ips.remove(sourceIP);
-
-        int first_hop = -1; // TODO actually get proper hop from topology somehow
-        int second_hop = -2; // TODO actually get proper hop from topology somehow
-        int route = encodePermutationOfThree(first_hop,second_hop);
-        return route;
-    }
-
-    // TODO implement read side of all of these
-
-    private void startPostNegotiationMasterPhase() {
-        setState(State.POST_NEGOTIATION_MASTER);
-
-
-        int route = getMulticastForwarding();
-
-        int hops = 0;
-        int first_packet_ack_nr = hops << 6 | route;
-        SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
-        // TODO send out the first packet
-
-        for (SmallPacket packet: negotiatedPackets) {
-            // TODO send out all the assignments
-        }
-
-        // TODO send out final packet
-    }
-
-
-
-    private void startPostNegotiationSlavePhase(SmallPacket packet) {
-        setState(State.POST_NEGOTIATION_SLAVE);
-        // TODO implement
-        // TODO do something with the packets you get
-        // TODO properly forward, increment hops
-    }
-
-    private void startPostNegotiationStrangerPhase(SmallPacket packet) {
-        setState(State.POST_NEGOTIATION_STRANGER);
-        // TODO implement
-        // TODO do something with the packets you get
-        // TODO properly forward
     }
 
 
@@ -385,6 +318,30 @@ public class MyProtocol{
 
     }
 
+    private void startWaitingForTimingStrangerPhase() {
+        setState(State.WAITING_FOR_TIMING_STRANGER);
+        exponential_backoff = 1;
+        timer = new Timer(20000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+                if (state==State.WAITING_FOR_TIMING_STRANGER) {
+                    exponential_backoff = 1;
+                    startDiscoveryPhase(exponential_backoff);
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
+
+    }
+
+    private void startNegotiationMasterPhase() throws InterruptedException {
+        setState(State.NEGOTIATION_MASTER);
+        negotiatedPackets.clear();
+        wait(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT);
+        startPostNegotiationMasterPhase();
+    }
+
     private void startNegotiationStrangerPhase() throws InterruptedException {
         setState(State.NEGOTIATION_STRANGER);
         this.negotiation_phases_encountered++;
@@ -403,25 +360,73 @@ public class MyProtocol{
         }
         startWaitingForTimingStrangerPhase();
 
-
-
     }
 
-    private void startWaitingForTimingStrangerPhase() {
-        setState(State.WAITING_FOR_TIMING_STRANGER);
-        exponential_backoff = 1;
-        timer = new Timer(20000, new ActionListener() {
+
+
+    private void startNegotiationStrangerDonePhase() {
+        setState(State.NEGOTIATION_STRANGER_DONE);
+        timer = new Timer(5000, new ActionListener() {
             @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
-                if (state==State.WAITING_FOR_TIMING_STRANGER) {
-                    exponential_backoff = 1;
-                    startDiscoveryPhase(exponential_backoff);
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.NEGOTIATION_STRANGER_DONE) {
+                    startWaitingForTimingStrangerPhase();
                 }
             }
         });
         timer.setRepeats(false); // Only execute once
         timer.start(); // Go go go!
+    }
 
+    private int getMulticastForwarding() {
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(sourceIP);
+
+        int first_hop = -1; // TODO actually get proper hop from topology somehow
+        int second_hop = -2; // TODO actually get proper hop from topology somehow
+        int route = encodePermutationOfThree(first_hop,second_hop);
+        return route;
+    }
+
+    // TODO implement read side of all of these
+
+    private void startPostNegotiationMasterPhase() throws InterruptedException {
+        setState(State.POST_NEGOTIATION_MASTER);
+
+
+        int route = getMulticastForwarding();
+
+        int hops = 0;
+        int first_packet_ack_nr = hops << 6 | route;
+        SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
+        sendSmallPacket(first_packet);
+
+        for (SmallPacket negotiation_packet: negotiatedPackets) {
+            int new_ip = highest_assigned_ip+1;
+            SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, negotiation_packet.ackNum,true,false,true,false,true);
+            sendSmallPacket(promotionPacket);
+            highest_assigned_ip++;
+        }
+        negotiatedPackets.clear();
+
+
+        // TODO send out final packet
+    }
+
+
+
+    private void startPostNegotiationSlavePhase(SmallPacket packet) {
+        setState(State.POST_NEGOTIATION_SLAVE);
+        // TODO implement
+        // TODO do something with the packets you get
+        // TODO properly forward, increment hops
+    }
+
+    private void startPostNegotiationStrangerPhase(SmallPacket packet) {
+        setState(State.POST_NEGOTIATION_STRANGER);
+        // TODO implement
+        // TODO do something with the packets you get
+        // TODO properly forward
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -747,14 +752,14 @@ public class MyProtocol{
         boolean interference = false;
         if (sending) {
             sending = false;
-            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > 251) {
+            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > SHORT_PACKET_TIMESLOT) {
                 interference = true;
-            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > 1500) {
+            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > LONG_PACKET_TIMESLOT) {
                 interference = true;
 
             }
             if (interference) {
-                System.out.println("\u001B[31mINTEFERFERENCE DETECTED");
+                System.out.println("\u001B[31mINTEFERFERENCE DETECTED\u001B[0m");
 
 
                 if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
