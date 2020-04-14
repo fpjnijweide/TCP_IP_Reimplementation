@@ -382,6 +382,11 @@ public class MyProtocol{
         return new ArrayList<>();
     }
 
+    private List<Integer> getUnicastForwardingRoute(int sourceIP, Integer integer) {
+        // TODO implement
+        return new ArrayList<>();
+    }
+
     private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         all_ips.remove(ip);
@@ -403,6 +408,31 @@ public class MyProtocol{
 
     // TODO implement read side of all of these
 
+
+    private int getUnicastScheme(int sourceIP) {
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        int[] unicast_route_number = new int[3];
+        all_ips.remove(sourceIP);
+        for (int i = 0; i < all_ips.size(); i++) {
+            int destinationIP = all_ips.get(i);
+            List<Integer> relevant_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+            relevant_ips.remove(sourceIP);
+            relevant_ips.remove(destinationIP);
+
+            List<Integer> unicastRoute = getUnicastForwardingRoute(sourceIP, destinationIP);
+            int first_hop = unicastRoute.size() > 0? unicastRoute.get(0) : -1;
+            int second_hop = unicastRoute.size() > 1? unicastRoute.get(1) : -1;
+
+            int first_hop_index = relevant_ips.indexOf(first_hop);
+            int second_hop_index = relevant_ips.indexOf(second_hop);
+
+            unicast_route_number[i] = encodePermutationOfTwo(first_hop_index,second_hop_index);
+        }
+        return unicast_route_number[0]*5*5  + unicast_route_number[1]*5 + unicast_route_number[2];
+    }
+
+
+
     private void startPostNegotiationMasterPhase() throws InterruptedException {
         setState(State.POST_NEGOTIATION_MASTER);
 
@@ -414,22 +444,26 @@ public class MyProtocol{
         SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
         sendSmallPacket(first_packet);
 
-        // TODO wait for forwarding
+        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
         for (SmallPacket negotiation_packet: negotiatedPackets) {
             int new_ip = highest_assigned_ip+1;
             SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, negotiation_packet.ackNum,true,false,true,false,true);
             sendSmallPacket(promotionPacket);
             highest_assigned_ip++;
+            wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
-            // TODO wait for forwarding
         }
         negotiatedPackets.clear();
 
-        SmallPacket final_packet = new SmallPacket(sourceIP,0,ack_num_todo,true,false,true,true,true)
-        sendPacket(final_packet);
-        // TODO send out final packet
-        // TODO wait for forwarding
+
+
+
+        int unicast_scheme = getUnicastScheme(sourceIP);
+        SmallPacket final_packet = new SmallPacket(sourceIP,0,unicast_scheme,true,false,true,true,true);
+        sendSmallPacket(final_packet);
+        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+
         // TODO go to next state
     }
 
@@ -904,17 +938,32 @@ public class MyProtocol{
         // See description of permutationOfThree
         switch (order) {
             case 0:
-                return new ArrayList<E>(){};
+                return new ArrayList<E>(){}; // -1 -1
             case 1:
-                return new ArrayList<E>(Arrays.asList(list.get(0)));
+                return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
             case 2:
-                return new ArrayList<E>(Arrays.asList(list.get(1)));
+                return new ArrayList<E>(Arrays.asList(list.get(1))); // 1 -1
             case 3:
-                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1)));
+                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
             case 4:
-                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));
+                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));// 1 0
         }
         return null;
+    }
+
+    public int encodePermutationOfTwo(int a, int b) {
+        if (a==-1 && b==-1) {
+            return 0;
+        } else if (a==0 && b==-1) {
+            return 1;
+        } else if (a==1 && b==-1) {
+            return 2;
+        } else if (a==0 && b==1) {
+            return 3;
+        } else if (a==1 && b==0) {
+            return 4;
+        }
+        return -1;
     }
 
 }
