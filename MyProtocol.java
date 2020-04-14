@@ -220,7 +220,11 @@ public class MyProtocol{
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.SENT_DISCOVERY) {
                     sourceIP = 0;
-                    startTimingMasterPhase();
+                    try {
+                        startTimingMasterPhase();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
 
                 }
             }
@@ -229,10 +233,11 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
-    private void startTimingMasterPhase() {
+    private void startTimingMasterPhase() throws InterruptedException {
         setState(State.TIMING_MASTER);
         exponential_backoff = 1;
         // todo geef lengte negotiation phase aan in acknum.
+        int ackNumTodo = 0; //TODO fix
         SmallPacket packet = new SmallPacket(0,0,ackNumTodo,false,false,false,true,true);
         sendSmallPacket(packet);
         // TODO go to negotiation phase master
