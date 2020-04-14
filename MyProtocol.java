@@ -456,15 +456,12 @@ public class MyProtocol{
         }
         negotiatedPackets.clear();
 
-
-
-
         int unicast_scheme = getUnicastScheme(sourceIP);
         SmallPacket final_packet = new SmallPacket(sourceIP,0,unicast_scheme,true,false,true,true,true);
         sendSmallPacket(final_packet);
         wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
-        // TODO go to next state
+        startRequestMasterPhase();
     }
 
 
@@ -472,11 +469,26 @@ public class MyProtocol{
 
     private void startPostNegotiationSlavePhase(SmallPacket packet) {
         setState(State.POST_NEGOTIATION_SLAVE);
-        // TODO implement
-        // TODO do something with the packets you get
+        // TODO first packet: hops (increment by 1) and multicast scheme from acknum
+        int hops = (packet.ackNum & 0b1100000) >> 5;
+        int multicastSchemeNumber = packet.ackNum & 0b0011111;
+
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(packet.sourceIP);
+        List<Integer> forwardingScheme = decodePermutationOfThree(multicastSchemeNumber, all_ips);
+
+        if (forwardingScheme.get(hops) == sourceIP) {
+            // You have to forward this time
+            packet.ackNum += (1 << 5);
+            sendSmallPacket(packet);
+        }
+
         // TODO properly forward, increment hops but only for fist packet
         // TODO use getMulticastForwardingRouteFromOrder for this. Check if our position in that list == hops. If so, forward.
         // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
+
+
+        // TODO catch new packets somewhere else
     }
 
     private void startPostNegotiationStrangerPhase(SmallPacket packet) {
