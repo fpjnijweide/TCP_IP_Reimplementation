@@ -450,17 +450,30 @@ public class MyProtocol{
         wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
         List<Integer> received_tiebreakers = new ArrayList<>();
 
+        // Make list of all tiebreakers
         for (SmallPacket negotiation_packet: negotiatedPackets) {
-            int new_ip = highest_assigned_ip+1;
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
-            if (!received_tiebreakers.contains(received_tiebreaker)) { // TODO don't send stuff at all until we finished processing. Don't send any for duplicate tiebreakers.
-                received_tiebreakers.add(received_tiebreaker);
-                SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
+            received_tiebreakers.add(received_tiebreaker);
+        }
+
+        // If we find a packet that has a tie, add it to the list of packets to be removed
+        List<SmallPacket> toRemove = new ArrayList<>();
+        for (int i = 0; i < received_tiebreakers.size(); i++) {
+            int current_tiebreaker = received_tiebreakers.get(i);
+            if (Collections.frequency(received_tiebreakers,current_tiebreaker) > 1) {
+                toRemove.add(negotiatedPackets.get(i));
+            }
+        }
+
+        negotiatedPackets.removeAll(toRemove);
+
+        for (SmallPacket negotiation_packet: negotiatedPackets) {
+            int new_ip = highest_assigned_ip + 1;
+            int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
+            SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
                 sendSmallPacket(promotionPacket);
                 highest_assigned_ip++;
                 wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
-            }
-
         }
         negotiatedPackets.clear();
 
@@ -829,7 +842,9 @@ public class MyProtocol{
                                 if (sourceIP != -1) {
                                     finalPostNegotiationHandler(packet);
                                 } else {
-                                    throw new RuntimeException("Finished POST_NEGOTIATION_STRANGER without an IP. This really shouldn't happen");
+                                    // Finished POST_NEGOTIATION_STRANGER without an IP. This means we lost the tiebreaker.
+                                    timer.stop();
+                                    startWaitingForTimingStrangerPhase();
                                 }
                             }
                         }
