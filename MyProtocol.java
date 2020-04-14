@@ -117,6 +117,11 @@ public class MyProtocol{
     private BlockingQueue<Message> receivedQueue;
     private BlockingQueue<Message> sendingQueue;
 
+    private boolean sending = false;
+    private List<Message> messagesToSend = new ArrayList<>();
+    private List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
+
+
     Timer timer;
     List<Byte> buffer = new ArrayList<>();
     int sourceIP = -1;
@@ -201,6 +206,8 @@ public class MyProtocol{
         byte[] packetBytes = fillBigPacket(packet);
         toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA, toSend);
+        sending = true;
+        messagesToSend.add(msg);
         sendingQueue.put(msg);
     }
 
@@ -209,6 +216,8 @@ public class MyProtocol{
         byte[] packetBytes = fillSmallPacket(packet);
         toSend.put( packetBytes, 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA_SHORT, toSend);
+        sending = true;
+        messagesToSend.add(msg);
         sendingQueue.put(msg);
     }
 
@@ -413,6 +422,17 @@ public class MyProtocol{
             bytes = data.array();
 
         }
+        switch (type) {
+            case FREE:
+                long delay = System.currentTimeMillis() - timeMilli;
+                System.out.println("FREE. Delay since previous: " + delay);
+                detectInterference(delay);
+                return;
+            case BUSY:
+                System.out.println("BUSY");
+                timeMilli = System.currentTimeMillis();
+                return;
+        }
         switch (state) {
             case DISCOVERY:
                 switch (type) {
@@ -471,14 +491,7 @@ public class MyProtocol{
                 break;
             case READY:
                 switch (type) {
-                    case BUSY:
-                        System.out.println("BUSY");
-                        timeMilli = System.currentTimeMillis();
-                        break;
-                    case FREE:
-                        System.out.println("FREE. Delay since previous:" + (System.currentTimeMillis() - timeMilli));
-                        timeMilli = System.currentTimeMillis();
-                        break;
+
                     case DATA:
                         System.out.println("DATA");
                         BigPacket packet = readBigPacket(bytes);
@@ -517,7 +530,56 @@ public class MyProtocol{
 
     }
 
+    private void detectInterference(long delay) {
+        boolean interference = false;
+        if (sending) {
+            sending = false;
+            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > 251) {
+                interference = true;
+            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > 1500) {
+                interference = true;
 
+            }
+            if (interference) {
+                System.out.println("\u001B[31mINTEFERFERENCE DETECTED");
+
+
+                if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
+                    SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
+                    if (packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) {
+                        // Our negotiation packet had interference
+                        //  TODO bewaar een negotiation message niet, wacht tot volgende ronde met lage prob?
+                    } else if (packet.negotiate && packet.broadcast && packet.request && !packet.ackFlag) {
+                        // Our discovery packet had interference
+                        timer.stop();
+                        exponential_backoff*=2;
+                        startDiscoveryPhase(exponential_backoff);
+                    } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
+                        // ACK packet. Get rid of it
+                        messagesToSend.remove(0);
+                    } else if (packet.broadcast && packet.SYN) {
+                        // Timing master packet. Rebroadcast!
+                        try {
+                            startTimingMasterPhase();
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                } else {
+                    System.out.println("Keeping DATA packet in buffer");
+                }
+
+            } else {
+                if (sentMessages.size() >= 1000) {
+                    sentMessages.remove(0);
+                }
+                sentMessages.add(messagesToSend.remove(0));
+            }
+        }
+
+
+
+    }
 
 
 }
