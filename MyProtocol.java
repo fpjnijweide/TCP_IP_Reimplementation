@@ -284,13 +284,24 @@ public class MyProtocol{
     }
 
 
-    // TODO implement read side of all of these
+
 
     private void startNegotiationStrangerDonePhase() {
         setState(State.NEGOTIATION_STRANGER_DONE);
-        // TODO wait for POST_NEGOTIATION packet
-
+        timer = new Timer(5000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if (state==State.NEGOTIATION_STRANGER_DONE) {
+                    startWaitingForTimingStrangerPhase();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
     }
+
+
+    // TODO implement read side of all of these
 
     private void startPostNegotiationMasterPhase() {
         setState(State.POST_NEGOTIATION_MASTER);
@@ -300,6 +311,9 @@ public class MyProtocol{
 
     private void startPostNegotiationSlavePhase(SmallPacket packet) {
         // TODO implement
+    }
+
+    private void startPostNegotiationStrangerPhase(SmallPacket packet) {
     }
 
 
@@ -324,6 +338,8 @@ public class MyProtocol{
                 }
             }
         });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
 
     }
 
@@ -373,6 +389,8 @@ public class MyProtocol{
                 }
             }
         });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
 
     }
 
@@ -573,6 +591,7 @@ public class MyProtocol{
                         SmallPacket packet = readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
+                                timer.stop();
                                 startPostNegotiationSlavePhase(packet); // TODO implement ack nr is forwarding route and hops
                             }
                         }
@@ -611,6 +630,22 @@ public class MyProtocol{
                         if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
                             timer.stop();
                             startTimingStrangerPhase(packet.ackNum);
+                        }
+                        break;
+                }
+                break;
+            case NEGOTIATION_STRANGER_DONE:
+                switch (type) {
+                    case DATA_SHORT:
+                        // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                            if (!packet.SYN && packet.sourceIP == packet.destIP) {
+                                timer.stop();
+                                startPostNegotiationStrangerPhase(packet); // TODO implement ack nr is forwarding route and hops
+                            }
                         }
                         break;
                 }
@@ -670,6 +705,7 @@ public class MyProtocol{
 
 
 
+
     private void detectInterference(long delay) {
         boolean interference = false;
         if (sending) {
@@ -715,6 +751,7 @@ public class MyProtocol{
             } else {
                 SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
                 if (state==State.NEGOTIATION_STRANGER && packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) { // TODO possibly incorrect if
+                    timer.stop();
                     startNegotiationStrangerDonePhase();
                 }
 
