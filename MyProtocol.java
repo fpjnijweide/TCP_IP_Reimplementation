@@ -931,11 +931,20 @@ public class MyProtocol{
                 }
                 break;
             case REQUEST_MASTER:
-                // TODO store packets we get for the post request phase. negotiation phase code for this
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (!packet.broadcast && !packet.negotiate && packet.request) {
+                            requestPackets.add(packet);
+                        }
+                        break;
+                }
                 break;
             case REQUEST_SLAVE:
 
-                // TODO forward unicasts that we receive properly, purely based on receive time
+                // TODO @Freek forward unicasts that we receive properly, purely based on receive time
                 break;
             case READY:
                 switch (type) {
