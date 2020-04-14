@@ -31,6 +31,9 @@ public class MyProtocol{
     int highest_assigned_ip = -1;
     private List<Integer> postNegotiationSlaveforwardingScheme;
     private List<Integer> unicastRouteToMaster;
+    List<List<Integer>> unicastRoutes;
+    private int current_master;
+
 
     public enum State{
         NULL,
@@ -41,7 +44,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE;
     }
 
     public class SmallPacket{
@@ -381,13 +384,23 @@ public class MyProtocol{
     }
 
     private List<Integer> getMulticastForwardingRoute() {
-        // TODO implement
+        // TODO @Freek implement
         return new ArrayList<>();
     }
 
     private List<Integer> getUnicastForwardingRoute(int sourceIP, Integer integer) {
-        // TODO implement
+        // TODO @Freek implement
         return new ArrayList<>();
+    }
+
+    private int getLinkTopologyBits() {
+        // TODO @Freek implement
+        return 0;
+    }
+
+    private int getLinkAwarenessBits() {
+        // TODO @Freek implement
+        return 0;
     }
 
     private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
@@ -513,8 +526,55 @@ public class MyProtocol{
         // TODO @freek
     }
 
-    public void startRequestSlavePhase() {
-        // TODO @freek
+    public void startRequestSlavePhase() throws InterruptedException {
+        setState(State.REQUEST_SLAVE);
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(current_master);
+        int thisNodesSendTurn = all_ips.get(sourceIP);
+        int thisNodesSendTimeslot = thisNodesSendTurn;
+
+        for (int i = 0; i < thisNodesSendTurn; i++) {
+            thisNodesSendTimeslot += unicastRoutes.get(i).size();
+        }
+
+        wait(thisNodesSendTimeslot*SHORT_PACKET_TIMESLOT);
+
+        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
+        int bit_1_and_2 = how_many_timeslots_do_we_want & 0b1100;
+        int bit_3_and_4 = how_many_timeslots_do_we_want & 0b0011;
+        int link_topology_bits = getLinkTopologyBits();
+        int link_awareness_bits = getLinkAwarenessBits(); // TODO we might not want to use this, and use hops/IP instead. We can still prioritize each node's own info in post-request phase.
+
+
+        boolean first_awareness_bit = (link_awareness_bits & 0b100) >> 2 == 1;
+        boolean second_awareness_bit = (link_awareness_bits & 0b010) >> 1 == 1;
+
+        int final_bits = ((link_awareness_bits & 0b001) << 6) | link_topology_bits;
+        SmallPacket packet = new SmallPacket(bit_1_and_2,bit_3_and_4,final_bits,first_awareness_bit,true,false,second_awareness_bit,false);
+        sendSmallPacket(packet);
+
+        int delay_until_post_request_phase = all_ips.size()-sourceIP-1;
+
+        for (int i = sourceIP; i < all_ips.size(); i++) {
+            delay_until_post_request_phase += unicastRoutes.get(i).size();
+        }
+
+        timer = new Timer(delay_until_post_request_phase, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) { // TODO we can also just have this trigger by receiving the packet
+                if (state==State.DISCOVERY) {
+                    try {
+                        startPostRequestSlavePhase();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
+
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -847,6 +907,10 @@ public class MyProtocol{
                         }
                 }
                 break;
+            case REQUEST_SLAVE:
+
+                // TODO forward unicasts that we receive properly, purely based on receive time
+                break;
             case READY:
                 switch (type) {
 
@@ -901,15 +965,17 @@ public class MyProtocol{
         // Handles slave/stranger side of final post negotiation phase packet
         if (packet.SYN) {
             List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
-            List<List<Integer>> unicastRoutes = new ArrayList<>();
             all_ips.remove(packet.sourceIP);
+            current_master = packet.sourceIP; // TODO set this somewhere else where it makes more sense
             // 124 DEC is 444 PENT
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5,(packet.ackNum / 5) % 5, packet.ackNum % 5};
 
+            unicastRoutes = new ArrayList<>();
             for (int i = 0; i < route_numbers.length; i++) {
 
                 List<Integer> ip_list = new ArrayList<>(Arrays.asList(0,1,2,3));
                 ip_list.remove(packet.sourceIP);
+
                 ip_list.remove(i); // this will remove by index, not element
                 int order = route_numbers[i];
                 List<Integer> unicastRoute = decodePermutationOfTwo(order, ip_list);
@@ -939,7 +1005,11 @@ public class MyProtocol{
                     e.printStackTrace();
                 }
             }
-            startRequestSlavePhase();
+            try {
+                startRequestSlavePhase();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
 
         }
     }
