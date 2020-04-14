@@ -38,7 +38,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER;
     }
 
     public class SmallPacket{
@@ -300,20 +300,50 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
+    private int getMulticastForwarding() {
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        all_ips.remove(sourceIP);
+
+        int first_hop = -1; // TODO actually get proper hop from topology somehow
+        int second_hop = -2; // TODO actually get proper hop from topology somehow
+        int route = encodePermutationOfThree(first_hop,second_hop);
+        return route;
+    }
 
     // TODO implement read side of all of these
 
     private void startPostNegotiationMasterPhase() {
         setState(State.POST_NEGOTIATION_MASTER);
-        // todo collect all the packets from buffer..?
-        // todo implement
+
+
+        int route = getMulticastForwarding();
+
+        int hops = 0;
+        int first_packet_ack_nr = hops << 6 | route;
+        SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
+        // TODO send out the first packet
+
+        for (SmallPacket packet: negotiatedPackets) {
+            // TODO send out all the assignments
+        }
+
+        // TODO send out final packet
     }
 
+
+
     private void startPostNegotiationSlavePhase(SmallPacket packet) {
+        setState(State.POST_NEGOTIATION_SLAVE);
         // TODO implement
+        // TODO do something with the packets you get
+        // TODO properly forward, increment hops
     }
 
     private void startPostNegotiationStrangerPhase(SmallPacket packet) {
+        setState(State.POST_NEGOTIATION_STRANGER);
+        // TODO implement
+        // TODO do something with the packets you get
+        // TODO properly forward
     }
 
 
@@ -621,6 +651,7 @@ public class MyProtocol{
 //                }
 
                 break;
+
             case WAITING_FOR_TIMING_STRANGER:
                 switch (type) {
                     case DATA_SHORT:
@@ -651,7 +682,13 @@ public class MyProtocol{
                 }
                 break;
             case POST_NEGOTIATION_MASTER:
-                // TODO we shouldn't receive anything here?
+                // we shouldn't receive anything here?
+                break;
+            case POST_NEGOTIATION_SLAVE:
+                // TODO handle received packets
+                break;
+            case POST_NEGOTIATION_STRANGER:
+                // TODO handle received packets and set ip and such
                 break;
             case READY:
                 switch (type) {
@@ -768,35 +805,73 @@ public class MyProtocol{
 
 
 
-    public <E> List<E> permutationOfThree(int order, List<E> list) {
+    public <E> List<E> decodePermutationOfThree(int order, List<E> list) {
         // Obviously these are just permutations of a list of 3 items. Using some abstract algebra, you wouldn't need to hardcode this
         // But that is outside the scope of this course
          switch (order) {
              case 0:
-                 return new ArrayList<E>(){};
+                 return new ArrayList<E>(){}; // -1 -1
              case 1:
-                 return new ArrayList<E>(Arrays.asList(list.get(0)));
+                 return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
              case 2:
-                 return new ArrayList<E>(Arrays.asList(list.get(1)));
+                 return new ArrayList<E>(Arrays.asList(list.get(1))); // 1 -1
              case 3:
-                 return new ArrayList<E>(Arrays.asList(list.get(2)));
+                 return new ArrayList<E>(Arrays.asList(list.get(2))); // 2 -1
              case 4:
-                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1)));
+                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
              case 5:
-                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(2)));
+                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(2))); // 0 2
              case 6:
-                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));
+                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0))); // 1 0
              case 7:
-                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(2)));
+                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(2))); // 1 2
              case 8:
-                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(0)));
+                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(0))); // 2 0
              case 9:
-                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(1)));
+                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(1))); // 2 1
          }
         return null;
     }
 
-    public <E> List<E> permutationOfTwo(int order, List<E> list) {
+    public int encodePermutationOfThree(int a, int b) {
+        switch (a) {
+            case 0:
+                switch (b) {
+                    case 1:
+                        return 4;
+                    case 2:
+                        return 5;
+                    case -1:
+                        return 1;
+                }
+                break;
+            case 1:
+                switch (b) {
+                    case 0:
+                        return 6;
+                    case 2:
+                        return 7;
+                    case -1:
+                        return 2;
+                }
+                break;
+            case 2:
+                switch (b) {
+                    case 0:
+                        return 8;
+                    case 1:
+                        return 9;
+                    case -1:
+                        return 3;
+                }
+                break;
+            case -1:
+                return 0;
+        }
+        return -1;
+    }
+
+    public <E> List<E> decodePermutationOfTwo(int order, List<E> list) {
         // See description of permutationOfThree
         switch (order) {
             case 0:
