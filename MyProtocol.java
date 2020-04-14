@@ -28,6 +28,7 @@ public class MyProtocol{
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
     int highest_assigned_ip = -1;
+    private List<Integer> postNegotiationSlaveforwardingScheme;
 
     public enum State{
         NULL,
@@ -467,36 +468,28 @@ public class MyProtocol{
 
 
 
-    private void startPostNegotiationSlavePhase(SmallPacket packet) {
+    private void startPostNegotiationSlavePhase(SmallPacket packet) throws InterruptedException {
         setState(State.POST_NEGOTIATION_SLAVE);
-        // TODO first packet: hops (increment by 1) and multicast scheme from acknum
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
 
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
-        all_ips.remove(packet.sourceIP);
-        List<Integer> forwardingScheme = decodePermutationOfThree(multicastSchemeNumber, all_ips);
+        postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
 
-        if (forwardingScheme.get(hops) == sourceIP) {
+        if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
             // You have to forward this time
             packet.ackNum += (1 << 5);
             sendSmallPacket(packet);
         }
 
-        // TODO properly forward, increment hops but only for fist packet
-        // TODO use getMulticastForwardingRouteFromOrder for this. Check if our position in that list == hops. If so, forward.
-        // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
-
-
-        // TODO catch new packets somewhere else
     }
 
     private void startPostNegotiationStrangerPhase(SmallPacket packet) {
         setState(State.POST_NEGOTIATION_STRANGER);
-        // TODO implement
-        // TODO do something with the packets you get
-        // TODO properly forward, increment hops but only for fist packet
-        // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
+        // maybe do things here..? but we don't have to forward anything
+        int hops = (packet.ackNum & 0b1100000) >> 5;
+        int multicastSchemeNumber = packet.ackNum & 0b0011111;
+
+        postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -697,7 +690,11 @@ public class MyProtocol{
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
                                 timer.stop();
-                                startPostNegotiationSlavePhase(packet); // TODO implement ack nr is forwarding route and hops
+                                try {
+                                    startPostNegotiationSlavePhase(packet); // TODO implement ack nr is forwarding route and hops
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
                             }
                         }
                         break;
@@ -760,10 +757,35 @@ public class MyProtocol{
                 // we shouldn't receive anything here?
                 break;
             case POST_NEGOTIATION_SLAVE:
-                // TODO handle received packets
+                switch (type) {
+                    case DATA_SHORT:
+                        // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                            if (!packet.SYN && packet.sourceIP != packet.destIP) {
+                                highest_assigned_ip = packet.destIP;
+                                // TODO forward?
+                            } else if (packet.SYN) {
+                                // TODO FINAL PACKET
+                                // TODO forward?
+                            }
+                        }
+                }
+                // TODO multicast using timeslots for the packets after it. Or not even timeslots, just use previous forwarding rule!
+                // TODO catch new packets somewhere else
+
+                // TODO use the multicast scheme to figure out when the request phase starts
                 break;
             case POST_NEGOTIATION_STRANGER:
                 // TODO handle received packets and set ip and such
+                // TODO actually IP!!
+
+                highest_assigned_ip = 0; // TODO make this the IP we got on receiving side. actually implement shit
+                // TODO use the multicast scheme to figure out when the request phase starts
+
+                // TODO use the unicast scheme and highest assigned IP to figure out the exact timings of request phase
                 break;
             case READY:
                 switch (type) {
