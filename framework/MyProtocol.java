@@ -5,6 +5,7 @@ import client.Client;
 import client.Message;
 import client.MessageType;
 
+import javax.swing.*;
 import javax.swing.Timer;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -84,8 +85,16 @@ public class MyProtocol {
         System.out.println("NEW STATE: " + state.toString());
     }
 
+    public int getDestNode (int sourceIP){
+        //dialog box to input destination node
+        String destinationNode = JOptionPane.showInputDialog(null,"Hello, you are node " + sourceIP + ". Enter destination node: ");
+        return Integer.parseInt(destinationNode);
+    }
+
     @SuppressWarnings("ConstantConditions")
     public void handleInput() throws IOException, InterruptedException {
+        int destIP = getDestNode(routing.sourceIP);
+
         ByteBuffer temp = ByteBuffer.allocate(1024);
         int read;
         read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
@@ -125,7 +134,7 @@ public class MyProtocol {
 
                             boolean morePacketsFlag = read - 1 - i > 28;
                             int size = morePacketsFlag ? 32 : read - 1 - i + 4;
-                            packetHandling.sendPacket(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
+                            packetHandling.sendPacket(new BigPacket(routing.sourceIP, destIP, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
 
                         }
                         break;
@@ -137,7 +146,7 @@ public class MyProtocol {
                     System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
                     boolean morePacketsFlag = read - 1 - i > 28;
                     int size = morePacketsFlag ? 32 : read - 1 - i + 4;
-                    dataPhaseBigPacketBuffer.add(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
+                    dataPhaseBigPacketBuffer.add(new BigPacket(routing.sourceIP, destIP, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
                 }
             }
         }
