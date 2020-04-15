@@ -37,6 +37,8 @@ public class MyProtocol{
     static final int TIMEOUT = 2000;
     long timeOuttimer;
     BigPacket packet_waiting_to_send;
+    boolean did_send_packet = false;
+
 
     public enum State{
         NULL,
@@ -159,6 +161,9 @@ public class MyProtocol{
         try{
             ByteBuffer temp = ByteBuffer.allocate(1024);
             int read = 0;
+
+            int destIP = getDestNode(sourceIP);
+
             while(true){
                 read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
                 System.out.println(read-1);
@@ -176,7 +181,7 @@ public class MyProtocol{
                         //startDiscoveryPhase(0);
                         int x  =2;
                     } else if (textString.equals("SMALLPACKET")) {
-                        sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
+                        sendSmallPacket(new SmallPacket(0,destIP,0,false,false,false,false,false));
                     } else {
                         for (int i = 0; i < read-1; i+=28) {
                             byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
@@ -201,13 +206,14 @@ public class MyProtocol{
 //                            received.set(packet_number,false);
 
                             packet_waiting_to_send = new BigPacket(sourceIP, 0, 0, false, false, false, false, true, partial_text, packet_number, morePacketsFlag, size);
-
+                            did_send_packet = true;
                             if(packet_number < last_ack_received || packet_number > biggest_sendable_packet){
                                 System.out.println("packet not in sending window, send later");
                                 queueingPackets.add(packet_waiting_to_send);
                             }
                             else {
                                 sendPacket(packet_waiting_to_send);
+                                timeOuttimer = System.currentTimeMillis();
                                 last_seqNum_sent = packet_number;
                                 acknowledged.set(packet_number, false);
                             }
@@ -222,8 +228,15 @@ public class MyProtocol{
                                     received.set(j,false);
                                 }
                             }
+                            //TODO put this in correct place: check if timer ran out, if so and packet has not been acknowledged, send again
+                            if((System.currentTimeMillis() - timeOuttimer) > TIMEOUT){
+                                if(!acknowledged.get(packet_waiting_to_send.seqNum)) {
+                                    sendPacket(packet_waiting_to_send);
+                                    System.out.println("resending packet" + packet_waiting_to_send.seqNum);
+                                }
+                                timeOuttimer = System.currentTimeMillis();
+                            }
 
-                            timeOuttimer = System.currentTimeMillis();
                             //TODO timeout implementeren
                         }
                     }
@@ -257,6 +270,13 @@ public class MyProtocol{
 //        timer.setRepeats(false); // Only execute once
 //        timer.start(); // Go go go!
 //    }
+
+
+    public int getDestNode (int sourceIP){
+        //dialog box to input destination node
+        String destinationNode = JOptionPane.showInputDialog(null,"Hello, you are node " + sourceIP + ". Enter destination node: ");
+        return Integer.parseInt(destinationNode);
+    }
 
     public void sendPacket(BigPacket packet) throws InterruptedException {
         ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
@@ -528,9 +548,11 @@ public class MyProtocol{
     private class receiveThread extends Thread {
         private BlockingQueue<Message> receivedQueue;
 
-        public receiveThread(BlockingQueue<Message> receivedQueue){
+        public receiveThread(BlockingQueue<Message> receivedQueue)  {
+
             super();
             this.receivedQueue = receivedQueue;
+
         }
 
         public void run(){
@@ -547,11 +569,7 @@ public class MyProtocol{
 
     public void sendPackBack(SmallPacket ackPacket) throws InterruptedException {
 
-        if(System.currentTimeMillis() - timeOuttimer>TIMEOUT){
-            if(!acknowledged.get(packet_waiting_to_send.seqNum))
-            sendPacket(packet_waiting_to_send);
-            System.out.println("resending packet" + packet_waiting_to_send.seqNum);
-        }
+
         System.out.println("Ack received with acknum = " + ackPacket.ackNum);
         last_ack_received = ackPacket.ackNum;
         int SWS = 15;
@@ -570,7 +588,6 @@ public class MyProtocol{
     }
 
     public void sendAckBack(BigPacket packet) throws InterruptedException {
-        // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
 
         int RWS = 15;
         int end_of_receiver_window = last_ack_sent + RWS;
@@ -712,12 +729,10 @@ public class MyProtocol{
                 break;
             case READY:
                 switch (type) {
-
                     case DATA:
 
 
                         System.out.println("DATA");
-//TODO ha alleen 1e packet binnen
                         BigPacket packet = readBigPacket(bytes);
 
                         if(!received.get(packet.seqNum)) {
