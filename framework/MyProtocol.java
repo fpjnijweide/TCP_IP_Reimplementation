@@ -30,7 +30,7 @@ public class MyProtocol {
     // The port to connect to. 8954 for the simulation server.
     private static final int SERVER_PORT = 8954;
     // The frequency to use.
-    private static final int frequency = 5400;
+    private static final int frequency = 15400;
     private final List<SmallPacket> negotiatedPackets = new ArrayList<>();
     private final List<SmallPacket> requestPackets = new ArrayList<>();
     private final List<SmallPacket> forwardedPackets = new ArrayList<>();
@@ -1134,12 +1134,19 @@ public class MyProtocol {
         boolean interference = false;
         if (packetHandling.sending) {
             packetHandling.sending = false;
-            if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > packetHandling.SHORT_PACKET_TIMESLOT) {
-                interference = true;
-            } else if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA && delay > packetHandling.LONG_PACKET_TIMESLOT) {
-                interference = true;
+            int expectedDelay = 0;
+            for (int i = 0; i < packetHandling.messagesToSend.size(); i++) {
+                MessageType type = packetHandling.messagesToSend.get(i).getType();
+                if (type == MessageType.DATA) {
+                    expectedDelay += packetHandling.LONG_PACKET_TIMESLOT;
+                } else {
+                    expectedDelay += packetHandling.SHORT_PACKET_TIMESLOT;
+                }
 
             }
+
+            interference = delay > expectedDelay;
+
             if (interference) {
                 System.out.println("\u001B[31mINTEFERFERENCE DETECTED\u001B[0m");
 
