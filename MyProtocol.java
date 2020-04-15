@@ -559,15 +559,12 @@ public class MyProtocol{
         int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
         int bit_1_and_2 = how_many_timeslots_do_we_want & 0b1100;
         int bit_3_and_4 = how_many_timeslots_do_we_want & 0b0011;
+        boolean bit_3 = (how_many_timeslots_do_we_want & 0b0010) >> 1 == 1;
+        boolean bit_4 = (how_many_timeslots_do_we_want & 0b0001) == 1;
+
         int link_topology_bits = getLinkTopologyBits();
-        int link_awareness_bits = getLinkAwarenessBits(); // TODO @Freek we might not want to use this, and use hops/IP instead. We can still prioritize each node's own info in post-request phase.
 
-
-        boolean first_awareness_bit = (link_awareness_bits & 0b100) >> 2 == 1;
-        boolean second_awareness_bit = (link_awareness_bits & 0b010) >> 1 == 1;
-
-        int final_bits = ((link_awareness_bits & 0b001) << 6) | link_topology_bits;
-        SmallPacket packet = new SmallPacket(bit_1_and_2,bit_3_and_4,final_bits,first_awareness_bit,true,false,second_awareness_bit,false);
+        SmallPacket packet = new SmallPacket(sourceIP,bit_1_and_2, link_topology_bits,bit_3,true,false,bit_4,false);
         sendSmallPacket(packet);
 
         int delay_until_post_request_phase = 0;
@@ -581,22 +578,6 @@ public class MyProtocol{
             }
 
         }
-
-        timer = new Timer(delay_until_post_request_phase, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO @Freek we can also just have this trigger by receiving the packet
-                if (state==State.DISCOVERY) {
-                    try {
-                        startPostRequestSlavePhase();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
 
     }
 
@@ -943,8 +924,31 @@ public class MyProtocol{
                 }
                 break;
             case REQUEST_SLAVE:
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+                        all_ips.remove(current_master);
+                        if (!packet.broadcast && !packet.negotiate && packet.request) {
+                            // If we are in the route of the person that sent this packet
+                            if (unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(sourceIP)) { // TODO THIS MIGHT NOT WORK
+                                try {
+                                    sendSmallPacket(packet); // We have to forward it
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                                // TODO @Freek unless we saw it before!
+                            }
+                        }
+                        if (!packet.negotiate && packet.request && packet.broadcast) {
+                            timer.stop();
+                            startPostRequestSlavePhase(packet); // TODO start of data phase depends on the "hop" counter in this packet. Might not even be a small packet...
+                        }
+                        break;
 
-                // TODO @Freek forward unicasts that we receive properly, purely based on receive time
+                }
                 break;
             case READY:
                 switch (type) {
