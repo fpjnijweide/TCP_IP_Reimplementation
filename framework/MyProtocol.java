@@ -1024,7 +1024,7 @@ public class MyProtocol {
                         System.out.println("DATA");
                         BigPacket packet = packetHandling.readBigPacket(bytes);
 
-                        if (packet.morePackFlag || packetHandling.buffer.size() > 0) {
+                        if (packet.morePackFlag || packetHandling.splitPacketBuffer.size() > 0) {
                             byte[] result = packetHandling.appendToBuffer(packet);
                             if (result.length > 0) {
                                 printByteBuffer(result, true);
@@ -1135,8 +1135,8 @@ public class MyProtocol {
         if (packetHandling.sending) {
             packetHandling.sending = false;
             int expectedDelay = 0;
-            for (int i = 0; i < packetHandling.messagesToSend.size(); i++) {
-                MessageType type = packetHandling.messagesToSend.get(i).getType();
+            for (int i = 0; i < packetHandling.messagesJustSent.size(); i++) {
+                MessageType type = packetHandling.messagesJustSent.get(i).getType();
                 if (type == MessageType.DATA) {
                     expectedDelay += packetHandling.LONG_PACKET_TIMESLOT;
                 } else {
@@ -1150,22 +1150,22 @@ public class MyProtocol {
                 System.out.println("\u001B[31mINTEFERFERENCE DETECTED\u001B[0m");
 
 
-                if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
-                    SmallPacket packet = packetHandling.readSmallPacket(packetHandling.messagesToSend.get(0).getData().array());
+                if (packetHandling.messagesJustSent.get(0).getType() == MessageType.DATA_SHORT) {
+                    SmallPacket packet = packetHandling.readSmallPacket(packetHandling.messagesJustSent.get(0).getData().array());
                     if (packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) {
                         // Our negotiation packet had interference, get rid of it
-                        packetHandling.messagesToSend.clear();
+                        packetHandling.messagesJustSent.clear();
                     } else if (packet.negotiate && packet.broadcast && packet.request && !packet.ackFlag) {
                         // Our discovery packet had interference
-                        packetHandling.messagesToSend.clear();
+                        packetHandling.messagesJustSent.clear();
                         timer.stop();
                         exponentialBackoff *= 2;
                         startDiscoveryPhase(exponentialBackoff);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
-                        packetHandling.messagesToSend.clear();
+                        packetHandling.messagesJustSent.clear();
                     } else if (packet.broadcast && packet.SYN) {
-                        packetHandling.messagesToSend.clear();
+                        packetHandling.messagesJustSent.clear();
                         // Timing master packet. Rebroadcast!
                         try {
                             timer.stop();
@@ -1184,11 +1184,11 @@ public class MyProtocol {
                     startNegotiationStrangerDonePhase();
                 }
 
-                if (packetHandling.sentMessages.size() >= 1000) {
-                    packetHandling.sentMessages.remove(0);
+                if (packetHandling.messageHistory.size() >= 1000) {
+                    packetHandling.messageHistory.remove(0);
                 }
-                packetHandling.sentMessages.addAll(packetHandling.messagesToSend);
-                packetHandling.messagesToSend.clear();
+                packetHandling.messageHistory.addAll(packetHandling.messagesJustSent);
+                packetHandling.messagesJustSent.clear();
             }
         }
 

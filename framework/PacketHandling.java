@@ -12,9 +12,9 @@ public class PacketHandling {
     final BlockingQueue<Message> sendingQueue;
     public int SHORT_PACKET_TIMESLOT = 260;
     public int LONG_PACKET_TIMESLOT = 1510;
-    List<Byte> buffer = new ArrayList<>(); // TODO rename to split_packet_buffer
-    List<Message> messagesToSend = new ArrayList<>();
-    List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
+    List<Byte> splitPacketBuffer = new ArrayList<>();
+    List<Message> messagesJustSent = new ArrayList<>();
+    List<Message> messageHistory = new ArrayList<>();
     boolean sending = false;
 
     public PacketHandling(BlockingQueue<Message> sendingQueue) {
@@ -28,7 +28,7 @@ public class PacketHandling {
         toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA, toSend);
         sending = true;
-        messagesToSend.add(0, msg);
+        messagesJustSent.add(0, msg);
         sendingQueue.put(msg);
     }
 
@@ -38,24 +38,24 @@ public class PacketHandling {
         toSend.put(packetBytes, 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA_SHORT, toSend);
         sending = true;
-        messagesToSend.add(0, msg);
+        messagesJustSent.add(0, msg);
         sendingQueue.put(msg);
     }
 
     public byte[] appendToBuffer(BigPacket packet) {
         // todo ewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
         for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
-            buffer.add(packet.payloadWithoutPadding[i]);
+            splitPacketBuffer.add(packet.payloadWithoutPadding[i]);
         }
 
         if (packet.morePackFlag) {
             return new byte[]{};
         } else {
-            byte[] bufferCopy = new byte[buffer.size()];
-            for (int i = 0; i < buffer.size(); i++) {
-                bufferCopy[i] = buffer.get(i);
+            byte[] bufferCopy = new byte[splitPacketBuffer.size()];
+            for (int i = 0; i < splitPacketBuffer.size(); i++) {
+                bufferCopy[i] = splitPacketBuffer.get(i);
             }
-            buffer.clear();
+            splitPacketBuffer.clear();
             return bufferCopy;
         }
     }
