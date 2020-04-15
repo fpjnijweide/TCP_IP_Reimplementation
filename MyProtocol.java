@@ -252,8 +252,9 @@ public class MyProtocol{
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.SENT_DISCOVERY) {
-                    sourceIP = 0;
                     try {
+                        sourceIP = 0;
+                        highest_assigned_ip = 0;
                         startTimingMasterPhase(8);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
@@ -266,12 +267,8 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
-    private void startTimingMasterPhase() throws InterruptedException {
-        startTimingMasterPhase(0);
-    }
-
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
-        highest_assigned_ip = 0;
+        current_master = sourceIP;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
             this.negotiation_phase_length = new_negotiation_phase_length;
@@ -286,13 +283,7 @@ public class MyProtocol{
         startNegotiationMasterPhase();
     }
 
-
-
-    private void startTimingSlavePhase() {
-        startTimingSlavePhase(0);
-    }
-
-    private void startTimingSlavePhase(int new_negotiation_phase_length) {
+    private void startTimingSlavePhase(int new_negotiation_phase_length, int new_master_ip) {
         if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
             this.negotiation_phase_length /= 2;
         }
@@ -583,7 +574,11 @@ public class MyProtocol{
     }
 
     private void startPostRequestMasterPhase() {
+        // TODO set state
+        // TODO loop through requestpackets
+        // TODO clear requestpackets
 
+        // TODO change state when the time is right
     }
 
     private void startPostRequestSlavePhase(SmallPacket packet) {
@@ -898,6 +893,7 @@ public class MyProtocol{
                                 if ((packet.ackNum & 0b0011111 ) == tiebreaker) {
                                     sourceIP = packet.destIP;
                                     highest_assigned_ip = packet.destIP;
+                                    current_master = packet.sourceIP;
                                 }
 
 
@@ -1020,7 +1016,7 @@ public class MyProtocol{
         if (packet.SYN) {
             List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
             all_ips.remove(packet.sourceIP);
-            current_master = packet.sourceIP; // TODO set this somewhere else where it makes more sense
+            current_master = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
             // 124 DEC is 444 PENT
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5,(packet.ackNum / 5) % 5, packet.ackNum % 5};
 
