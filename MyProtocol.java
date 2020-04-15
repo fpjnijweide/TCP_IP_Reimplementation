@@ -33,6 +33,10 @@ public class MyProtocol{
     int last_seqNum_sent = 0;
     int last_ack_received = 0;
     int biggest_sendable_packet = 15;
+    List<BigPacket> queueingPackets = new ArrayList<>();
+    static final int TIMEOUT = 2000;
+    long timeOuttimer;
+    BigPacket packet_waiting_to_send;
 
     public enum State{
         NULL,
@@ -116,7 +120,7 @@ public class MyProtocol{
     private static int frequency = 5400;
     private int exponential_backoff = 1;
 
-    static final int k = 256;
+    static final int k = 15;
 
     List<Boolean> acknowledged = new ArrayList<>(Collections.nCopies(k, false));
     List<Boolean> received = new ArrayList<>(Collections.nCopies(k, false));
@@ -177,6 +181,7 @@ public class MyProtocol{
                         for (int i = 0; i < read-1; i+=28) {
                             byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
                             System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
@@ -189,44 +194,37 @@ public class MyProtocol{
                             // done last seq nr sent als field bjihouden
                             // done SWS bijhouden als field
                             // done LAR+SWS (biggest sendable packet) bijhouden als field
-                            // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
 
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
 
+//                            received.set(packet_number,false);
 
+                            packet_waiting_to_send = new BigPacket(sourceIP, 0, 0, false, false, false, false, true, partial_text, packet_number, morePacketsFlag, size);
 
                             if(packet_number < last_ack_received || packet_number > biggest_sendable_packet){
-                                System.out.println("packet not in sending window");
+                                System.out.println("packet not in sending window, send later");
+                                queueingPackets.add(packet_waiting_to_send);
                             }
                             else {
-                                sendPacket(new BigPacket(sourceIP, 0, 0, false, false, false, false, true, partial_text, packet_number, morePacketsFlag, size));
+                                sendPacket(packet_waiting_to_send);
                                 last_seqNum_sent = packet_number;
                                 acknowledged.set(packet_number, false);
-                                if (!morePacketsFlag) {
-                                    packet_number = 0;
-                                } else {
-                                    packet_number++;
+                            }
+
+                            if (packet_waiting_to_send.morePackFlag){
+                                packet_number++;
+                            } else {
+                                packet_number = 0;
+                                last_ack_received = 0;
+                                biggest_sendable_packet = 15;
+                                for(int j = 0; j < last_seqNum_sent; j++){
+                                    received.set(j,false);
                                 }
                             }
 
-
-                            Message m = receivedQueue.take();
-                            ByteBuffer data = m.getData();
-                            byte [] bytes = null;
-                            if (data != null) {
-                                bytes = data.array();
-
-                            }
-                            SmallPacket ackPacket = readSmallPacket(bytes);
-                            last_ack_received = ackPacket.ackNum;
-                            int SWS = 15;
-                            biggest_sendable_packet = last_ack_received + SWS;
-
-                            acknowledged.set(last_ack_received,true);
-
-
-                            //TODO timeout start
+                            timeOuttimer = System.currentTimeMillis();
+                            //TODO timeout implementeren
                         }
                     }
                 }
@@ -526,6 +524,7 @@ public class MyProtocol{
 
     }
 
+
     private class receiveThread extends Thread {
         private BlockingQueue<Message> receivedQueue;
 
@@ -546,6 +545,54 @@ public class MyProtocol{
         }
     }
 
+    public void sendPackBack(SmallPacket ackPacket) throws InterruptedException {
+
+        if(System.currentTimeMillis() - timeOuttimer>TIMEOUT){
+            if(!acknowledged.get(packet_waiting_to_send.seqNum))
+            sendPacket(packet_waiting_to_send);
+            System.out.println("resending packet" + packet_waiting_to_send.seqNum);
+        }
+        System.out.println("Ack received with acknum = " + ackPacket.ackNum);
+        last_ack_received = ackPacket.ackNum;
+        int SWS = 15;
+        biggest_sendable_packet = last_ack_received + SWS;
+        acknowledged.set(last_ack_received, true);
+        if(last_ack_received>0) {
+            acknowledged.set(last_ack_received - 1, false);
+        }
+        while (queueingPackets.size()>0 && queueingPackets.get(0).seqNum <= biggest_sendable_packet){
+            sendPacket(queueingPackets.get(0));
+            queueingPackets.remove(0);
+        }
+        if (queueingPackets.size() == 0){
+            last_seqNum_sent = 0; // reset last sequence number sent
+        }
+    }
+
+    public void sendAckBack(BigPacket packet) throws InterruptedException {
+        // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
+
+        int RWS = 15;
+        int end_of_receiver_window = last_ack_sent + RWS;
+        last_ack_sent = packet.ackNum;
+
+        if (packet.seqNum <= end_of_receiver_window) {
+            int last_pack_received = packet.seqNum;
+
+            received.set(packet.seqNum, true);
+            packet.ackNum = packet.seqNum;
+            packet.ackFlag = true;
+            // send ack
+            sendSmallPacket(new SmallPacket(packet.destIP, packet.sourceIP, packet.seqNum, packet.ackFlag, false, false, false, false));
+            System.out.println("Ack sent with acknumber " + packet.seqNum);
+
+        }
+        else{ System.out.println("Packet with seq. number " + packet.ackNum + " is discarded");}
+
+
+    }
+
+
     private void processMessage(ByteBuffer data, MessageType type) throws InterruptedException {
         byte [] bytes = null;
         if (data != null) {
@@ -556,7 +603,7 @@ public class MyProtocol{
             case FREE:
                 long delay = System.currentTimeMillis() - timeMilli;
                 System.out.println("FREE. Delay since previous: " + delay);
-                detectInterference(delay);
+               // detectInterference(delay);
                 return;
             case BUSY:
                 System.out.println("BUSY");
@@ -668,21 +715,33 @@ public class MyProtocol{
 
                     case DATA:
 
+
                         System.out.println("DATA");
+//TODO ha alleen 1e packet binnen
                         BigPacket packet = readBigPacket(bytes);
 
-                        if (packet.morePackFlag || buffer.size() > 0) {
-                            byte[] result = appendToBuffer(packet);
-                            if (result.length > 0) {
-                                printByteBuffer(result, true);
+                        if(!received.get(packet.seqNum)) {
+                            sendAckBack(packet);
+
+
+                            if (packet.morePackFlag || buffer.size() > 0) {
+                                byte[] result = appendToBuffer(packet);
+                                if (result.length > 0) {
+                                    printByteBuffer(result, true);
+                                }
+                            } else {
+                                printByteBuffer(bytes, false); //Just print the data
                             }
-                        } else {
-                            printByteBuffer(bytes, false); //Just print the data
+
+                            System.out.println("source IP from this packet is " + packet.sourceIP);
+                            System.out.println("packetnumber is " + packet.seqNum);
+                        } else {System.out.println("Duplicate packet");}
+                        if(!packet.morePackFlag){
+                            for( int i =0; i<k;i++){
+                                // put everything on false again to make sure next packet with seq num 0 that belongs to different stream gets accepted
+                                received.set(i,false);
+                            }
                         }
-
-                        System.out.println("source IP from this packet is " + packet.sourceIP);
-                        System.out.println("packetnumber is " + packet.seqNum);
-
                         // TODO @Martijn sliding window protocol receiving side
 
                         // done stuur ACKs
@@ -691,30 +750,13 @@ public class MyProtocol{
                         // done LAS + RWS = einde van je window, bijhouden als field
                         // done lijst aan booleans met welke packets je al binnen hebt binnen je window
 
-                        int RWS = 15;
-                        int end_of_receiver_window = last_ack_sent + RWS;
-                        last_ack_sent = packet.ackNum;
-
-                        if (packet.ackNum <= end_of_receiver_window) {
-                            if (!packet.ackFlag) {
-                                int last_pack_received = packet.seqNum;
-                                if (!received.get(packet.seqNum)) {
-                                    received.set(packet.seqNum, true);
-                                }
-                                packet.ackNum = packet.seqNum;
-                                packet.ackFlag = true;
-                                sendSmallPacket(new SmallPacket(packet.destIP, packet.sourceIP, packet.seqNum, packet.ackFlag, false, false, false, false));
-
-                            } else {
-                                if (!acknowledged.get(packet.ackNum)) {
-                                    acknowledged.set(packet.ackNum, true);
-                                }
-                                System.out.println("ACK received from " + packet.sourceIP);
-                            }
-                        }
-                        else{ System.out.println("Packet with seq. number " + packet.ackNum + " is discarded");}
                         break;
                     case DATA_SHORT:
+
+                        SmallPacket smallPacket = readSmallPacket(bytes);
+                        if(smallPacket.ackFlag){//only send pack back if packet received is an ACK packet
+                            sendPackBack(smallPacket);
+                        }
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
                         break;
