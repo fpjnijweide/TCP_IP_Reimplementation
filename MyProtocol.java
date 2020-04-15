@@ -418,6 +418,7 @@ public class MyProtocol{
             List<Integer> nodePath = frontierPaths.remove(node_index);
 
             if (node_to_explore == secondIP) {
+                done = true;
                 return nodePath;
             }
 
@@ -440,7 +441,7 @@ public class MyProtocol{
                         List<Integer> unknownNodeFrontierPath = frontierPaths.get(unknownNodeFrontierIndex);
                         if (newNodePath.size() < unknownNodeFrontierPath.size()) {
                             frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
-                        } else if (newNodePath.size() == unknownNodeFrontierPath.size(){
+                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()){
                             boolean thisPathIsBetter = false;
                             for (int i = 0; i < newNodePath.size(); i++) {
                                 if (newNodePath.get(i) > unknownNodeFrontierPath.get(i)) {
@@ -482,7 +483,66 @@ public class MyProtocol{
         updateLongTopologyFromShortTopology();
     }
 
+    public int mergeTopologies(List<Integer> topologyNumbers) {
+        List<boolean[]> shortTopologies = new ArrayList<>();
+        List<boolean[][]> longTopologies = new ArrayList<>();
+        boolean[][] resultTopology = new boolean[4][4];
 
+        for (int i = 0; i < topologyNumbers.size(); i++) {
+            boolean[] currentShortTopology = new boolean[6];
+            boolean[][] currentlongTopology = new boolean[4][4];
+            int currentTopologyNumber = topologyNumbers.get(i);
+            for (int j = 0; j < currentShortTopology.length; j++) {
+                currentShortTopology[j] = ( ( currentTopologyNumber & (1 << (5-i)) ) >> (5-i) ) == 1;
+            }
+            shortTopologies.add(currentShortTopology);
+
+            for (int k = 0; k <= highest_assigned_ip; k++) {
+                for (int l = 0; l <= highest_assigned_ip; l++) {
+                    if (k==l) {
+                        currentlongTopology[k][l]=true;
+                    }
+                    if (k==0 && l>0) {
+                        currentlongTopology[0][l] = currentShortTopology[l-1];
+                    }
+                    if (k>0 && l<k) {
+                        currentlongTopology[k][l] = currentlongTopology[l][k];
+                    }
+                    if (k==1 && l>1) {
+                        currentlongTopology[1][l] = currentShortTopology[l+1];
+                    }
+                    if (k==2 && l > 2) {
+                        currentlongTopology[2][l] = currentShortTopology[l+2];
+
+                    }
+                }
+            }
+            longTopologies.add(currentlongTopology);
+
+            for (int j = 0; j <= highest_assigned_ip; j++) {
+                resultTopology[i][j] = currentlongTopology[i][j];
+            }
+        }
+
+        // make sure resulttopology is symmetric: if one side is 0, the other side is too
+        for (int k = 0; k <= highest_assigned_ip; k++) {
+            for (int l = 0; l <= highest_assigned_ip; l++) {
+                if (k==l) {
+                    resultTopology[k][l]=true;
+                }
+                if (resultTopology[k][l] != resultTopology[l][k]) {
+                    resultTopology[k][l] = false;
+                    resultTopology[l][k] = false;
+                }
+            }
+        }
+
+        longTopology = resultTopology;
+        updateShortTopologyFromLongTopology();
+        return getLinkTopologyBits();
+
+
+    }
 
     private void checkRoutingTableExpirations() {
         for (int i = 0; i < neighbor_expiration_time.length; i++) {
@@ -758,20 +818,25 @@ public class MyProtocol{
     private void startPostRequestMasterPhase() throws InterruptedException {
         setState(State.POST_REQUEST_MASTER);
         int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want (just use messagesToSend?)
+        List<Integer> topologyNumbers = new ArrayList<>();
 
         timeslotsRequested = new ArrayList<>();
         for (SmallPacket packet: requestPackets) {
             int timeslots = (packet.destIP << 2) | ((packet.ackFlag?1:0) << 1) | (packet.SYN?1:0);
             timeslotsRequested.add(timeslots);
+            int topologyNumber = ; // TODO get topology from packet
+            topologyNumbers.add(topologyNumber);
         }
-        
+
+        topologyNumbers.add(sourceIP,getLinkTopologyBits());
+
         timeslotsRequested.add(sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
         int hops = 0;
 
         boolean packet1_ackflag = ((timeslotsRequested.get(0) & 0b1000) >> 3 ) == 1;
         boolean packet1_synflag = ((timeslotsRequested.get(0) & 0b0100) >> 2 ) == 1;
         int packet1_bits_3_and_4 = (timeslotsRequested.get(0) & 0b0011);
-        int topology = 0; // TODO @Freek update topology based on all these packets + your own incomplete topology
+        int topology = mergeTopologies(topologyNumbers);
         int ackField = ( (timeslotsRequested.get(1) & 0b1000 ) << 3) | topology;
         SmallPacket first_packet = new SmallPacket(hops,packet1_bits_3_and_4,ackField,packet1_ackflag,true,false,packet1_synflag,true);
 
