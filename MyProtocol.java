@@ -24,8 +24,8 @@ public class MyProtocol{
     private Date date = new Date();
     private long timeMilli;
     private int negotiation_phase_length = 8;
-    public int SHORT_PACKET_TIMESLOT = 251;
-    public int LONG_PACKET_TIMESLOT = 1500;
+    public int SHORT_PACKET_TIMESLOT = 260;
+    public int LONG_PACKET_TIMESLOT = 1510;
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
@@ -46,7 +46,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 5400;
+    private static int frequency = 15400;
     private int exponential_backoff = 1;
     private State state = State.READY;
 
