@@ -899,16 +899,27 @@ public class MyProtocol{
         for (int i = 0; i < dataPhaseBigPacketBuffer.size(); i++) {
             result += 1;
             BigPacket packet = dataPhaseBigPacketBuffer.get(i);
-            int forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            int forwardingTime;
+            if (!packet.broadcast) {
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            } else {
+                forwardingTime = getMulticastForwardingRoute().size();
+            }
             result += forwardingTime;
         }
         for (int i = 0; i < dataPhaseSmallPacketBuffer.size(); i++) {
             result += ((float)1/(float)6);
             SmallPacket packet = dataPhaseSmallPacketBuffer.get(i);
-            int forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            int forwardingTime;
+            if (!packet.broadcast) {
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            } else {
+                forwardingTime = getMulticastForwardingRoute().size();
+            }
             result += ((float) forwardingTime)/6;
         }
-        return (int) Math.ceil(result);
+        int resultAsInt= (int) Math.ceil(result);
+        return Math.min(resultAsInt, 15);
     }
 
     private void startPostRequestMasterPhase() throws InterruptedException {
@@ -999,7 +1010,29 @@ public class MyProtocol{
 
         wait(delay_until_we_send*LONG_PACKET_TIMESLOT);
 
-        wait(timeslotsRequested.get(sourceIP)*LONG_PACKET_TIMESLOT); // TODO @freek send data from buffer
+        for (SmallPacket packet: dataPhaseSmallPacketBuffer) {
+            sendSmallPacket(packet);
+            int forwardingTime;
+            if (!packet.broadcast) {
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            } else {
+                forwardingTime = getMulticastForwardingRoute().size();
+            }
+            wait(forwardingTime*SHORT_PACKET_TIMESLOT);
+        }
+        dataPhaseSmallPacketBuffer.clear();
+
+        for (BigPacket packet: dataPhaseBigPacketBuffer) {
+            sendPacket(packet);
+            int forwardingTime;
+            if (!packet.broadcast) {
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            } else {
+                forwardingTime = getMulticastForwardingRoute().size();
+            }
+            wait(forwardingTime*LONG_PACKET_TIMESLOT);
+        }
+        dataPhaseBigPacketBuffer.clear();
 
         wait(delay_after_we_send*LONG_PACKET_TIMESLOT);
         int next_master = (current_master + 1) % (highest_assigned_ip + 1);
