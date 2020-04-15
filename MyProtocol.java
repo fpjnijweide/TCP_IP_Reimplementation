@@ -75,7 +75,8 @@ public class MyProtocol{
         READY,
         TIMING_SLAVE,
         TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER,
-        WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE, DATA_PHASE;
+        WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER,
+        REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE, DATA_PHASE;
     }
 
     public class SmallPacket{
@@ -390,8 +391,7 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
-    private List<Integer> getMulticastForwardingRoute() {
-        int firstIP = sourceIP;
+    private List<Integer> getMulticastForwardingRoute(int firstIP) {
         List<Integer> explored = new ArrayList<>();
         List<List<Integer>> exploredPaths = new ArrayList<>();
 
@@ -761,7 +761,7 @@ public class MyProtocol{
     private void startPostNegotiationMasterPhase() throws InterruptedException {
         setState(State.POST_NEGOTIATION_MASTER);
 
-        List<Integer> route_ips = getMulticastForwardingRoute();
+        List<Integer> route_ips = getMulticastForwardingRoute(sourceIP);
         int route = getMulticastForwardingRouteNumber(sourceIP,route_ips);
 
         int hops = 0;
@@ -903,7 +903,7 @@ public class MyProtocol{
             if (!packet.broadcast) {
                 forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute().size();
+                forwardingTime = getMulticastForwardingRoute(sourceIP).size();
             }
             result += forwardingTime;
         }
@@ -914,7 +914,7 @@ public class MyProtocol{
             if (!packet.broadcast) {
                 forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute().size();
+                forwardingTime = getMulticastForwardingRoute(sourceIP).size();
             }
             result += ((float) forwardingTime)/6;
         }
@@ -955,7 +955,7 @@ public class MyProtocol{
 
         SmallPacket second_packet = new SmallPacket(hops, packet2_bits_3_and_4,packet2_acknum,packet2_ackflag,true,false,packet2_synflag,true);
 
-        List<Integer> route_ips = getMulticastForwardingRoute();
+        List<Integer> route_ips = getMulticastForwardingRoute(sourceIP);
 
         sendSmallPacket(first_packet);
         wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
@@ -998,6 +998,7 @@ public class MyProtocol{
 
     private void startDataPhase() throws InterruptedException {
         setState(State.DATA_PHASE);
+        forwardedPackets.clear();
         int delay_until_we_send = 0;
         int delay_after_we_send = 0;
 
@@ -1016,7 +1017,7 @@ public class MyProtocol{
             if (!packet.broadcast) {
                 forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute().size();
+                forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
             }
             wait(forwardingTime*SHORT_PACKET_TIMESLOT);
         }
@@ -1028,7 +1029,7 @@ public class MyProtocol{
             if (!packet.broadcast) {
                 forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute().size();
+                forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
             }
             wait(forwardingTime*LONG_PACKET_TIMESLOT);
         }
@@ -1458,10 +1459,77 @@ public class MyProtocol{
 
                 break;
             case DATA_PHASE:
-                // TODO @FREEK IMPLEMENT
-                // TODO READ DATA if it's for you
-                // TODO forward data if you're on the route (header should contain hop counter. we can use our internal state to determine if we are on best path)
-                // TODO whenever you catch a packet, read its hops. If you are on unicast path in correct hop (and not in forwardedpackets), forward it and store in forwardedpackets and fill routing table
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket smallPacket = readSmallPacket(bytes);
+                        if (smallPacket.broadcast) {
+                            throw new RuntimeException("Small packets cannot be multicast because they lack a hops field");
+                        }
+                        // TODO packets should not have request,negotiation flags etc. make error handler method?
+                        if (smallPacket.destIP == sourceIP) {
+                            handleSmallPacket(smallPacket);
+                        } else if (!smallPacket.broadcast && getUnicastForwardingRoute(smallPacket.sourceIP, smallPacket.destIP).contains(sourceIP)) {
+                            // we are on the route
+                            if (!forwardedPackets.contains(smallPacket)){
+                                forwardedPackets.add(smallPacket);
+                                try {
+                                    sendSmallPacket(smallPacket);
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }
+//                        else if (smallPacket.broadcast && getMulticastForwardingRoute(smallPacket.sourceIP).contains(sourceIP)) { // TODO dit kan niet
+//                            if (!forwardedPackets.contains(smallPacket)){
+//                                forwardedPackets.add(smallPacket);
+//                                try {
+//                                    sendSmallPacket(smallPacket);
+//                                } catch (InterruptedException e) {
+//                                    e.printStackTrace();
+//                                }
+//                            }
+//                        }
+                        break;
+                    case DATA:
+                        System.out.println("DATA");
+                        printByteBuffer(bytes, false); //Just print the data
+                        BigPacket bigPacket = readBigPacket(bytes);
+                        if (bigPacket.hops == 0) updateNeighbors(bigPacket.sourceIP);
+                        // TODO maybe use forwardedpackets again
+                        // Forwarding (you might have to forward multicast packet even if you handle it)
+                        if (!bigPacket.broadcast && getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).contains(sourceIP)) {
+                            // we are on the route
+                            if (bigPacket.hops==getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).indexOf(sourceIP)){
+                                forwardedPackets.add(bigPacket);
+                                try {
+                                    bigPacket.hops +=1;
+                                    sendPacket(bigPacket);
+                                    bigPacket.hops -=1;
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        } else if (bigPacket.broadcast && getMulticastForwardingRoute(bigPacket.sourceIP).contains(sourceIP)) {
+                            if (bigPacket.hops==getMulticastForwardingRoute(bigPacket.sourceIP).indexOf(sourceIP)){
+                                forwardedPackets.add(bigPacket);
+                                try {
+                                    bigPacket.hops +=1;
+                                    sendPacket(bigPacket);
+                                    bigPacket.hops -=1;
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }
+
+                        if (bigPacket.destIP == sourceIP) {
+                            handleBigPacket(bigPacket);
+                        }
+                        break;
+                }
+
                 break;
             case READY:
                 switch (type) {
