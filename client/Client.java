@@ -203,7 +203,7 @@ public class Client {
                 while( sock.isConnected() ){
                     bytesRead = sock.read(recv);
                     if ( bytesRead > 0 ){
-                        System.out.println("Received "+Integer.toString(bytesRead)+" bytes!");
+//                        System.out.println("Received "+Integer.toString(bytesRead)+" bytes!");
                         parseMessage( recv, bytesRead );
                     } else {
                         break;

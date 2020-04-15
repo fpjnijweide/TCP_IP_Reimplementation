@@ -653,29 +653,6 @@ public class MyProtocol {
         }
     }
 
-    public void printByteBuffer(byte[] bytes, boolean buffered) {
-        if (bytes!=null) {
-            for (int i = 0; i < bytes.length; i++) {
-                if (!buffered && i % 28 == 0) {
-                    System.out.print("\n");
-                    System.out.print("HEADER: ");
-                }
-                if (!buffered && i % 28 == 4) {
-                    System.out.print("\n");
-                    System.out.print("PAYLOAD: ");
-                }
-                byte aByte = bytes[i];
-                System.out.print((char) aByte);
-            }
-            System.out.println();
-            System.out.print("HEX: ");
-            for (byte aByte : bytes) {
-                System.out.print(String.format("%02x", aByte) + " ");
-            }
-            System.out.println();
-        }
-    }
-
     private void processMessage(ByteBuffer data, MessageType type) {
         byte[] bytes = new byte[0];
         if (data != null) {
@@ -691,12 +668,30 @@ public class MyProtocol {
                 System.out.println("BUSY");
                 interferenceDetectionTimer = System.currentTimeMillis();
                 return;
+            case DATA:
+                System.out.println("DATA");
+                packetHandling.printByteBuffer(bytes,false);
+                break;
+            case DATA_SHORT:
+                System.out.println("DATA_SHORT");
+                packetHandling.printByteBuffer(bytes,false);
+                break;
+            case DONE_SENDING:
+                System.out.println("DONE_SENDING");
+                break;
+            case HELLO:
+                System.out.println("HELLO");
+                break;
+            case SENDING:
+                System.out.println("SENDING");
+                break;
+            case END:
+                System.out.println("END");
+                System.exit(0);
         }
         switch (state) {
             case DISCOVERY:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
 
                     if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
@@ -711,8 +706,6 @@ public class MyProtocol {
                 break;
             case SENT_DISCOVERY:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
                     boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
@@ -737,8 +730,6 @@ public class MyProtocol {
                 break;
             case TIMING_SLAVE:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                         if (!packet.SYN && packet.sourceIP == packet.destIP) {
@@ -754,8 +745,6 @@ public class MyProtocol {
                 break;
             case NEGOTIATION_MASTER:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && !packet.ackFlag && !packet.request) {
                         receivedNegotiationPackets.add(packet);
@@ -767,7 +756,7 @@ public class MyProtocol {
 //                switch (type) {
 //                    case DATA_SHORT:
 //                        System.out.println("DATA_SHORT");
-//                        printByteBuffer(bytes, false); //Just print the data
+//                        packetHandling.printByteBuffer(bytes, false); //Just print the data
 //                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
 //                        break;
 //                }
@@ -776,8 +765,6 @@ public class MyProtocol {
 
             case WAITING_FOR_TIMING_STRANGER:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
                         timer.stop();
@@ -787,8 +774,6 @@ public class MyProtocol {
                 break;
             case NEGOTIATION_STRANGER_DONE:
                 if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                         if (!packet.SYN && packet.sourceIP == packet.destIP) {
@@ -803,8 +788,6 @@ public class MyProtocol {
                 break;
             case POST_NEGOTIATION_SLAVE:
                 if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                         if (!packet.SYN && packet.sourceIP != packet.destIP) {
@@ -830,8 +813,6 @@ public class MyProtocol {
                 break;
             case POST_NEGOTIATION_STRANGER:
                 if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                         if (!packet.SYN && packet.sourceIP != packet.destIP) {
@@ -861,8 +842,6 @@ public class MyProtocol {
                 break;
             case REQUEST_MASTER:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.broadcast && !packet.negotiate && packet.request) {
                         receivedRequestPackets.add(packet);
@@ -871,8 +850,6 @@ public class MyProtocol {
                 break;
             case REQUEST_SLAVE:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
                     all_ips.remove(currentMasterNodeIP);
@@ -899,8 +876,6 @@ public class MyProtocol {
                 break;
             case POST_REQUEST_SLAVE:
                 if (type == MessageType.DATA_SHORT) {
-                    System.out.println("DATA_SHORT");
-                    printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.negotiate && packet.request && packet.broadcast) {
                         int second_person_requested_timeslot = timeslotsRequested.get(1) | ((packet.ackFlag ? 1 : 0) << 1) | packet.destIP;
@@ -947,8 +922,6 @@ public class MyProtocol {
             case DATA_PHASE:
                 switch (type) {
                     case DATA_SHORT:
-                        System.out.println("DATA_SHORT");
-                        printByteBuffer(bytes, false); //Just print the data
                         SmallPacket smallPacket = packetHandling.readSmallPacket(bytes);
                         if (smallPacket.broadcast) {
                             throw new RuntimeException("Small packets cannot be multicast because they lack a hops field");
@@ -979,8 +952,6 @@ public class MyProtocol {
 //                        }
                         break;
                     case DATA:
-                        System.out.println("DATA");
-                        printByteBuffer(bytes, false); //Just print the data
                         BigPacket bigPacket = packetHandling.readBigPacket(bytes);
                         if (bigPacket.hops == 0) routing.updateNeighbors(bigPacket.sourceIP);
                         // TODO maybe use forwardedpackets again
@@ -1021,20 +992,14 @@ public class MyProtocol {
                 switch (type) {
 
                     case DATA:
-                        System.out.println("DATA");
                         BigPacket packet = packetHandling.readBigPacket(bytes);
 
                         if (packet.morePackFlag || packetHandling.splitPacketBuffer.size() > 0) {
                             byte[] result = packetHandling.appendToBuffer(packet);
                             if (result.length > 0) {
-                                printByteBuffer(result, true);
+                                packetHandling.printByteBuffer(result, true);
                             }
-                        } else {
-                            printByteBuffer(bytes, false); //Just print the data
                         }
-
-                        System.out.println("source IP from this packet is" + packet.sourceIP);
-                        System.out.println("packet sent to " + packet.destIP);
 
                         // TODO @Martijn sliding window protocol receiving side
 
@@ -1046,22 +1011,7 @@ public class MyProtocol {
 
 
                         break;
-                    case DATA_SHORT:
-                        System.out.println("DATA_SHORT");
-                        printByteBuffer(bytes, false); //Just print the data
-                        break;
-                    case DONE_SENDING:
-                        System.out.println("DONE_SENDING");
-                        break;
-                    case HELLO:
-                        System.out.println("HELLO");
-                        break;
-                    case SENDING:
-                        System.out.println("SENDING");
-                        break;
-                    case END:
-                        System.out.println("END");
-                        System.exit(0);
+
                 }
         }
 

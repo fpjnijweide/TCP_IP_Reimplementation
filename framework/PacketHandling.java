@@ -115,4 +115,48 @@ public class PacketHandling {
         BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, payloadWithoutPadding, seqNum, morePackFlag, size, hops);
         return packet;
     }
+
+    public void printByteBuffer(byte[] bytes, boolean buffered) {
+        if (bytes!=null) {
+            if (buffered) {
+                System.out.print("\nBUFFERED: ");
+                for (byte aByte: bytes) {
+                    System.out.print((char) aByte);
+                }
+            } else if (bytes.length == 2) {
+                SmallPacket packet = readSmallPacket(bytes);
+                System.out.print("\nHEADER: ");
+                System.out.print("\nHEADER FLAGS: " + (packet.ackFlag? "ACK ":"") + (packet.request? "REQUEST ":"") + (packet.negotiate? "NEGOTIATION ":"") + (packet.SYN? "SYN ":"") + (packet.broadcast? "BROADCAST ":""));
+                System.out.print("\nSOURCE IP: " + packet.sourceIP);
+                System.out.print("\nDEST IP: " + packet.destIP);
+                System.out.print("\nACK NUM: " + packet.ackNum);
+                for (byte aByte : bytes) {
+                    System.out.print(String.format("%8s", Integer.toBinaryString(aByte & 0xFF)).replace(' ', '0') + " ");
+                }
+            } else {
+                BigPacket packet = readBigPacket(bytes);
+                System.out.print("\nHEADER: ");
+                for (int i = 0; i < 4; i++) {
+                    byte aByte = bytes[i];
+                    System.out.print(String.format("%8s", Integer.toBinaryString(aByte & 0xFF)).replace(' ', '0') + " ");
+                }
+                // ack req neg syn broadcast, ack number
+
+                System.out.print("\nHEADER FLAGS: " + (packet.ackFlag? "ACK ":"") + (packet.request? "REQUEST ":"") + (packet.negotiate? "NEGOTIATION ":"") + (packet.SYN? "SYN ":"") + (packet.broadcast? "BROADCAST ":"") + (packet.morePackFlag? "MOREPACKETS ":""));
+                System.out.print("\nSOURCE IP: " + packet.sourceIP);
+                System.out.print("\nDEST IP: " + packet.destIP);
+                System.out.print("\nACK NUM: " + packet.ackNum);
+                System.out.print("\nSEQ NUM: " + packet.seqNum);
+                System.out.print("\nHOPS: " + packet.hops);
+                System.out.print("\nSIZE: " + packet.size);
+                System.out.print("\nPAYLOAD: ");
+                for (int i = 4; i < bytes.length; i++) {
+                    byte aByte = bytes[i];
+                    System.out.print((char) aByte);
+                }
+            }
+        System.out.print("\n");
+        System.out.print("\n");
+        }
+    }
 }
