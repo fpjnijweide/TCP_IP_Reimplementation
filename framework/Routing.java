@@ -8,8 +8,17 @@ import java.util.Arrays;
 import java.util.List;
 
 public class Routing {
+    boolean[] neighbor_available = new boolean[4];
+    long[] neighbor_expiration_time = new long[4];
+    boolean[] shortTopology;
+    boolean[][] longTopology;
+    int highest_assigned_ip = -1;
+    int sourceIP = -1;
+    List<Integer> postNegotiationSlaveforwardingScheme;
+    List<Integer> unicastRouteToMaster;
+    List<List<Integer>> unicastRoutes = new ArrayList<>();
 
-    private List<Integer> getMulticastForwardingRoute(int firstIP) {
+    List<Integer> getMulticastForwardingRoute(int firstIP) {
         List<Integer> explored = new ArrayList<>();
         List<List<Integer>> exploredPaths = new ArrayList<>();
 
@@ -91,7 +100,7 @@ public class Routing {
         return multicastPath;
     }
 
-    private List<Integer> getUnicastForwardingRoute(int firstIP, int secondIP) {
+    public List<Integer> getUnicastForwardingRoute(int firstIP, int secondIP) {
         List<Integer> explored = new ArrayList<>();
         List<List<Integer>> exploredPaths = new ArrayList<>();
 
@@ -165,7 +174,7 @@ public class Routing {
         return new ArrayList<>();
     }
 
-    private int getLinkTopologyBits() {
+    public int getLinkTopologyBits() {
         int resultNumber = 0;
         for (int i = 0; i < shortTopology.length; i++) {
             // start from left
@@ -245,7 +254,7 @@ public class Routing {
 
     }
 
-    private void checkRoutingTableExpirations() {
+    public void checkRoutingTableExpirations() {
         for (int i = 0; i < neighbor_expiration_time.length; i++) {
             if (System.currentTimeMillis() > neighbor_expiration_time[i]) {
                 neighbor_expiration_time[i] = 0;
@@ -273,7 +282,7 @@ public class Routing {
         updateTopologyFromAvailableNeighbors();
     }
 
-    private void updateLongTopologyFromShortTopology() {
+    public void updateLongTopologyFromShortTopology() {
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
                 if (i==j) {
@@ -296,7 +305,7 @@ public class Routing {
         }
     }
 
-    private void updateShortTopologyFromLongTopology() {
+    public void updateShortTopologyFromLongTopology() {
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
                 if (i==0 && j>0) {
@@ -313,7 +322,7 @@ public class Routing {
         }
     }
 
-    private void updateTopologyFromAvailableNeighbors() {
+    public void updateTopologyFromAvailableNeighbors() {
         // Update the relevant row in matrix
         for (int i = 0; i <= highest_assigned_ip; i++) {
             if (i!= sourceIP) {
@@ -337,7 +346,7 @@ public class Routing {
 
 
 
-    private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
+    public int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         all_ips.remove(ip);
 
@@ -356,7 +365,7 @@ public class Routing {
         return Mathematics.decodePermutationOfThree(order, all_ips);
     }
 
-    private int getUnicastScheme(int sourceIP) {
+    public int getUnicastScheme(int sourceIP) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         int[] unicast_route_number = new int[3];
         all_ips.remove(sourceIP);

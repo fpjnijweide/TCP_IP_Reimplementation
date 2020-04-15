@@ -32,18 +32,11 @@ public class MyProtocol{
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
-    int highest_assigned_ip = -1;
-    private List<Integer> postNegotiationSlaveforwardingScheme;
-    private List<Integer> unicastRouteToMaster;
-    List<List<Integer>> unicastRoutes = new ArrayList<>();
     private int current_master;
     private List<SmallPacket> requestPackets = new ArrayList<>();
     private List<SmallPacket> forwardedPackets = new ArrayList<>();
     List<Integer> timeslotsRequested;
-    boolean[] neighbor_available = new boolean[4];
-    long[] neighbor_expiration_time = new long[4];
-    private boolean[] shortTopology;
-    private boolean[][] longTopology;
+
     // The host to connect to. Set this to localhost when using the audio interface tool.
     private static String SERVER_IP = "netsys2.ewi.utwente.nl"; //"127.0.0.1";
     // The port to connect to. 8954 for the simulation server.
@@ -62,12 +55,10 @@ public class MyProtocol{
 
     List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
     List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
-
-
+    Routing routing = new Routing();
 
     Timer timer;
     List<Byte> buffer = new ArrayList<>();
-    int sourceIP = -1;
 
 
     public enum State{
@@ -101,7 +92,8 @@ public class MyProtocol{
 
 
 
-    public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
+    public MyProtocol(String server_ip, int server_port, int frequency, int inputSourceIP){
+        routing.sourceIP = inputSourceIP;
         receivedQueue = new LinkedBlockingQueue<Message>();
         sendingQueue = new LinkedBlockingQueue<Message>();
 
@@ -151,7 +143,7 @@ public class MyProtocol{
 
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
-                            sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
+                            sendPacket(new BigPacket(routing.sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
 
                         }
                     }
@@ -167,8 +159,8 @@ public class MyProtocol{
 
     private void startDiscoveryPhase(int exponential_backoff) {
         setState(State.DISCOVERY);
-        highest_assigned_ip = -1;
-        sourceIP = -1;
+        routing.highest_assigned_ip = -1;
+        routing.sourceIP = -1;
         tiebreaker = new Random().nextInt(1<<7);
         timer = new Timer(new Random().nextInt(2000*exponential_backoff + 1)+8000*exponential_backoff, new ActionListener() {
             @Override
@@ -216,10 +208,10 @@ public class MyProtocol{
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.SENT_DISCOVERY) {
                     try {
-                        sourceIP = 0;
-                        highest_assigned_ip = 0;
-                        shortTopology = new boolean[6];
-                        longTopology = new boolean[4][4];
+                        routing.sourceIP = 0;
+                        routing.highest_assigned_ip = 0;
+                        routing.shortTopology = new boolean[6];
+                        routing.longTopology = new boolean[4][4];
                         startTimingMasterPhase(8);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
@@ -233,7 +225,7 @@ public class MyProtocol{
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
-        current_master = sourceIP;
+        current_master = routing.sourceIP;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
             this.negotiation_phase_length = new_negotiation_phase_length;
@@ -243,7 +235,7 @@ public class MyProtocol{
             this.negotiation_phase_length /= 2;
         }
 
-        SmallPacket packet = new SmallPacket(sourceIP,0,this.negotiation_phase_length,false,false,false,true,true);
+        SmallPacket packet = new SmallPacket(routing.sourceIP,0,this.negotiation_phase_length,false,false,false,true,true);
         sendSmallPacket(packet);
         startNegotiationMasterPhase();
     }
@@ -357,12 +349,12 @@ public class MyProtocol{
     private void startPostNegotiationMasterPhase() throws InterruptedException {
         setState(State.POST_NEGOTIATION_MASTER);
 
-        List<Integer> route_ips = getMulticastForwardingRoute(sourceIP);
-        int route = getMulticastForwardingRouteNumber(sourceIP,route_ips);
+        List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
+        int route = routing.getMulticastForwardingRouteNumber(routing.sourceIP,route_ips);
 
         int hops = 0;
         int first_packet_ack_nr = hops << 6 | route;
-        SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
+        SmallPacket first_packet = new SmallPacket(routing.sourceIP, routing.sourceIP, first_packet_ack_nr,true,false,true,false,true);
         sendSmallPacket(first_packet);
 
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
@@ -386,19 +378,19 @@ public class MyProtocol{
         negotiatedPackets.removeAll(toRemove);
 
         for (SmallPacket negotiation_packet: negotiatedPackets) {
-            int new_ip = highest_assigned_ip + 1;
+            int new_ip = routing.highest_assigned_ip + 1;
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
 
-            SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
+            SmallPacket promotionPacket = new SmallPacket(routing.sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
             sendSmallPacket(promotionPacket);
-            highest_assigned_ip = new_ip;
-            updateNeighbors(new_ip);
+            routing.highest_assigned_ip = new_ip;
+            routing.updateNeighbors(new_ip);
             sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         }
         negotiatedPackets.clear();
 
-        int unicast_scheme = getUnicastScheme(sourceIP);
-        SmallPacket final_packet = new SmallPacket(sourceIP,hops,unicast_scheme,true,false,true,true,true);
+        int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
+        SmallPacket final_packet = new SmallPacket(routing.sourceIP,hops,unicast_scheme,true,false,true,true,true);
         sendSmallPacket(final_packet);
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
@@ -413,12 +405,12 @@ public class MyProtocol{
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
 
-        postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
+        routing.postNegotiationSlaveforwardingScheme = routing.getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
 
-        if (hops==0) updateNeighbors(packet.sourceIP);
+        if (hops==0) routing.updateNeighbors(packet.sourceIP);
 
 
-        if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+        if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
             // You have to forward this time
             packet.ackNum += (1 << 5);
             sendSmallPacket(packet);
@@ -431,9 +423,9 @@ public class MyProtocol{
         // maybe do things here..? but we don't have to forward anything
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
-        shortTopology = new boolean[6];
-        longTopology = new boolean[4][4];
-        postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
+        routing.shortTopology = new boolean[6];
+        routing.longTopology = new boolean[4][4];
+        routing.postNegotiationSlaveforwardingScheme = routing.getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
     }
 
     public void startRequestMasterPhase() throws InterruptedException {
@@ -443,10 +435,10 @@ public class MyProtocol{
         all_ips.remove(current_master);
         int request_phase_length = 0;
 
-        for (int i = sourceIP; i < all_ips.size(); i++) {
-            if (all_ips.get(i)<=highest_assigned_ip) {
+        for (int i = routing.sourceIP; i < all_ips.size(); i++) {
+            if (all_ips.get(i)<=routing.highest_assigned_ip) {
                 request_phase_length += 1; // Timeslot that a node sends.
-                request_phase_length += unicastRoutes.get(i).size();
+                request_phase_length += routing.unicastRoutes.get(i).size();
             }
 
         }
@@ -469,11 +461,11 @@ public class MyProtocol{
         setState(State.REQUEST_SLAVE);
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(current_master);
-        int thisNodesSendTurn = all_ips.get(sourceIP);
+        int thisNodesSendTurn = all_ips.get(routing.sourceIP);
         int thisNodesSendTimeslot = thisNodesSendTurn;
 
         for (int i = 0; i < thisNodesSendTurn; i++) {
-            thisNodesSendTimeslot += unicastRoutes.get(i).size();
+            thisNodesSendTimeslot += routing.unicastRoutes.get(i).size();
         }
 
         Timer timer = new Timer(thisNodesSendTimeslot * SHORT_PACKET_TIMESLOT, new ActionListener() {
@@ -497,19 +489,19 @@ public class MyProtocol{
         boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
         boolean bit_4 = (how_many_timeslots_do_we_want & 0b0001) == 1;
 
-        int link_topology_bits = getLinkTopologyBits();
+        int link_topology_bits = routing.getLinkTopologyBits();
 
-        SmallPacket packet = new SmallPacket(sourceIP,bit_1_and_2, link_topology_bits,bit_3,true,false,bit_4,false);
+        SmallPacket packet = new SmallPacket(routing.sourceIP,bit_1_and_2, link_topology_bits,bit_3,true,false,bit_4,false);
         sendSmallPacket(packet);
 
 //        int delay_until_post_request_phase = 0;
 //
 //        for (int i = sourceIP; i < all_ips.size(); i++) {
-//            if (all_ips.get(i)<=highest_assigned_ip) {
+//            if (all_ips.get(i)<=routing.highest_assigned_ip) {
 //                if (i>sourceIP) {
 //                    delay_until_post_request_phase += 1; // Timeslot that a node sends.
 //                }
-//                delay_until_post_request_phase += unicastRoutes.get(i).size();
+//                delay_until_post_request_phase += routing.unicastRoutes.get(i).size();
 //            }
 //
 //        }
@@ -523,9 +515,9 @@ public class MyProtocol{
             BigPacket packet = dataPhaseBigPacketBuffer.get(i);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+                forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute(sourceIP).size();
+                forwardingTime = routing.getMulticastForwardingRoute(routing.sourceIP).size();
             }
             result += forwardingTime;
         }
@@ -534,9 +526,9 @@ public class MyProtocol{
             SmallPacket packet = dataPhaseSmallPacketBuffer.get(i);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+                forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute(sourceIP).size();
+                forwardingTime = routing.getMulticastForwardingRoute(routing.sourceIP).size();
             }
             result += ((float) forwardingTime)/6;
         }
@@ -557,9 +549,9 @@ public class MyProtocol{
             topologyNumbers.add(topologyNumber);
         }
 
-        topologyNumbers.add(sourceIP,getLinkTopologyBits());
+        topologyNumbers.add(routing.sourceIP,routing.getLinkTopologyBits());
 
-        timeslotsRequested.add(sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
+        timeslotsRequested.add(routing.sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
         while (timeslotsRequested.size()<4) {
             timeslotsRequested.add(0);
         }
@@ -568,7 +560,7 @@ public class MyProtocol{
         boolean packet1_ackflag = ((timeslotsRequested.get(0) & 0b1000) >> 3 ) == 1;
         boolean packet1_synflag = ((timeslotsRequested.get(0) & 0b0100) >> 2 ) == 1;
         int packet1_bits_3_and_4 = (timeslotsRequested.get(0) & 0b0011);
-        int topology = mergeTopologies(topologyNumbers);
+        int topology = routing.mergeTopologies(topologyNumbers);
         int ackField = ( (timeslotsRequested.get(1) & 0b1000 ) << 3) | topology;
         SmallPacket first_packet = new SmallPacket(hops,packet1_bits_3_and_4,ackField,packet1_ackflag,true,false,packet1_synflag,true);
 
@@ -580,7 +572,7 @@ public class MyProtocol{
 
         SmallPacket second_packet = new SmallPacket(hops, packet2_bits_3_and_4,packet2_acknum,packet2_ackflag,true,false,packet2_synflag,true);
 
-        List<Integer> route_ips = getMulticastForwardingRoute(sourceIP);
+        List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
 
         sendSmallPacket(first_packet);
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
@@ -604,11 +596,11 @@ public class MyProtocol{
         int received_topology = packet.ackNum & 0b0111111;
         int first_person_timeslots = ((packet.ackFlag?1:0) << 3) | ((packet.SYN?1:0) << 2) | packet.destIP;
         int second_person_first_bit = (packet.ackNum & 0b1000000) >> 3;
-        saveTopology(received_topology);
+        routing.saveTopology(received_topology);
         timeslotsRequested.set(0,first_person_timeslots);
         timeslotsRequested.set(1,second_person_first_bit);
 
-        if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+        if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
 
             // You have to forward this time
             // Source IP is not included here. No forwarding possible.
@@ -628,10 +620,10 @@ public class MyProtocol{
         int delay_until_we_send = 0;
         int delay_after_we_send = 0;
 
-        for (int i = 0; i < sourceIP; i++) {
+        for (int i = 0; i < routing.sourceIP; i++) {
             delay_until_we_send += timeslotsRequested.get(i);
         }
-        for (int i = sourceIP + 1; i <= highest_assigned_ip; i++) {
+        for (int i = routing.sourceIP + 1; i <= routing.highest_assigned_ip; i++) {
             delay_after_we_send += timeslotsRequested.get(i);
         }
 
@@ -656,9 +648,9 @@ public class MyProtocol{
             sendSmallPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
+                forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
+                forwardingTime = routing.getMulticastForwardingRoute(packet.sourceIP).size();
             }
             sleep(forwardingTime * SHORT_PACKET_TIMESLOT);
         }
@@ -668,9 +660,9 @@ public class MyProtocol{
             sendPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
+                forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
             } else {
-                forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
+                forwardingTime = routing.getMulticastForwardingRoute(packet.sourceIP).size();
             }
             sleep(forwardingTime * LONG_PACKET_TIMESLOT);
         }
@@ -692,8 +684,8 @@ public class MyProtocol{
     }
 
     public void dataPhaseThirdPart() throws InterruptedException {
-        int next_master = (current_master + 1) % (highest_assigned_ip + 1);
-        if (next_master == sourceIP) {
+        int next_master = (current_master + 1) % (routing.highest_assigned_ip + 1);
+        if (next_master == routing.sourceIP) {
             startTimingMasterPhase(0);
         } else {
             startTimingSlavePhase(0,next_master);
@@ -974,10 +966,10 @@ public class MyProtocol{
                         SmallPacket packet = readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
-                                highest_assigned_ip = packet.destIP;
+                                routing.highest_assigned_ip = packet.destIP;
                                 int hops = packet.ackNum >> 5;
-                                if (hops==0) updateNeighbors(packet.sourceIP);
-                                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                if (hops==0) routing.updateNeighbors(packet.sourceIP);
+                                if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
 
                                     // You have to forward this time
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
@@ -1003,19 +995,19 @@ public class MyProtocol{
                         SmallPacket packet = readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
-                                if (sourceIP != -1) {
-                                    highest_assigned_ip = packet.destIP;
+                                if (routing.sourceIP != -1) {
+                                    routing.highest_assigned_ip = packet.destIP;
                                 }
                                 if ((packet.ackNum & 0b0011111 ) == tiebreaker) {
-                                    sourceIP = packet.destIP;
-                                    highest_assigned_ip = packet.destIP;
+                                    routing.sourceIP = packet.destIP;
+                                    routing.highest_assigned_ip = packet.destIP;
                                     current_master = packet.sourceIP;
-                                    updateNeighbors(current_master);
+                                    routing.updateNeighbors(current_master);
                                 }
 
                                 int hops = packet.ackNum >> 5;
-                                if (hops==0) updateNeighbors(packet.sourceIP);
-//                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                if (hops==0) routing.updateNeighbors(packet.sourceIP);
+//                                if (routing.postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
 //                                    // You have to forward this time
 //                                    // TODO maybe we don't ever have to forward, just comment all this
 //                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
@@ -1027,7 +1019,7 @@ public class MyProtocol{
 //                                    }
 //                                }
                             } else if (packet.SYN) {
-                                if (sourceIP != -1) {
+                                if (routing.sourceIP != -1) {
                                     finalPostNegotiationHandler(packet);
                                 } else {
                                     // Finished POST_NEGOTIATION_STRANGER without an IP. This means we lost the tiebreaker.
@@ -1061,7 +1053,7 @@ public class MyProtocol{
                         if (!packet.broadcast && !packet.negotiate && packet.request) {
                             // If we are in the route of the person that sent this packet
 
-                            if (unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(sourceIP) && !forwardedPackets.contains(packet)) { // TODO THIS MIGHT NOT WORK
+                            if (routing.unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(routing.sourceIP) && !forwardedPackets.contains(packet)) { // TODO THIS MIGHT NOT WORK
                                 try {
                                     sendSmallPacket(packet); // We have to forward it
                                     forwardedPackets.add(packet);
@@ -1097,12 +1089,12 @@ public class MyProtocol{
 
                             int hops = packet.sourceIP;
                             try {
-                                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
 
                                     // You have to forward this time
                                     packet.sourceIP += 1;
                                     sendSmallPacket(packet);
-                                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                                         @Override
                                         public void actionPerformed(ActionEvent arg0) {
                                             try {
@@ -1116,7 +1108,7 @@ public class MyProtocol{
                                     timer.start(); // Go go g
 
                                 } else {
-                                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                                         @Override
                                         public void actionPerformed(ActionEvent arg0) {
                                             try {
@@ -1147,9 +1139,9 @@ public class MyProtocol{
                             throw new RuntimeException("Small packets cannot be multicast because they lack a hops field");
                         }
                         // TODO packets should not have request,negotiation flags etc. make error handler method?
-                        if (smallPacket.destIP == sourceIP) {
+                        if (smallPacket.destIP == routing.sourceIP) {
                             handleSmallPacket(smallPacket);
-                        } else if (!smallPacket.broadcast && getUnicastForwardingRoute(smallPacket.sourceIP, smallPacket.destIP).contains(sourceIP)) {
+                        } else if (!smallPacket.broadcast && routing.getUnicastForwardingRoute(smallPacket.sourceIP, smallPacket.destIP).contains(routing.sourceIP)) {
                             // we are on the route
                             if (!forwardedPackets.contains(smallPacket)){
                                 forwardedPackets.add(smallPacket);
@@ -1160,7 +1152,7 @@ public class MyProtocol{
                                 }
                             }
                         }
-//                        else if (smallPacket.broadcast && getMulticastForwardingRoute(smallPacket.sourceIP).contains(sourceIP)) { // TODO dit kan niet
+//                        else if (smallPacket.broadcast && routing.getMulticastForwardingRoute(smallPacket.sourceIP).contains(sourceIP)) { // TODO dit kan niet
 //                            if (!forwardedPackets.contains(smallPacket)){
 //                                forwardedPackets.add(smallPacket);
 //                                try {
@@ -1175,12 +1167,12 @@ public class MyProtocol{
                         System.out.println("DATA");
                         printByteBuffer(bytes, false); //Just print the data
                         BigPacket bigPacket = readBigPacket(bytes);
-                        if (bigPacket.hops == 0) updateNeighbors(bigPacket.sourceIP);
+                        if (bigPacket.hops == 0) routing.updateNeighbors(bigPacket.sourceIP);
                         // TODO maybe use forwardedpackets again
                         // Forwarding (you might have to forward multicast packet even if you handle it)
-                        if (!bigPacket.broadcast && getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).contains(sourceIP)) {
+                        if (!bigPacket.broadcast && routing.getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).contains(routing.sourceIP)) {
                             // we are on the route
-                            if (bigPacket.hops==getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).indexOf(sourceIP)){
+                            if (bigPacket.hops==routing.getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).indexOf(routing.sourceIP)){
                                 forwardedPackets.add(bigPacket);
                                 try {
                                     bigPacket.hops +=1;
@@ -1190,8 +1182,8 @@ public class MyProtocol{
                                     e.printStackTrace();
                                 }
                             }
-                        } else if (bigPacket.broadcast && getMulticastForwardingRoute(bigPacket.sourceIP).contains(sourceIP)) {
-                            if (bigPacket.hops==getMulticastForwardingRoute(bigPacket.sourceIP).indexOf(sourceIP)){
+                        } else if (bigPacket.broadcast && routing.getMulticastForwardingRoute(bigPacket.sourceIP).contains(routing.sourceIP)) {
+                            if (bigPacket.hops==routing.getMulticastForwardingRoute(bigPacket.sourceIP).indexOf(routing.sourceIP)){
                                 forwardedPackets.add(bigPacket);
                                 try {
                                     bigPacket.hops +=1;
@@ -1203,7 +1195,7 @@ public class MyProtocol{
                             }
                         }
 
-                        if (bigPacket.destIP == sourceIP) {
+                        if (bigPacket.destIP == routing.sourceIP) {
                             handleBigPacket(bigPacket);
                         }
                         break;
@@ -1278,7 +1270,7 @@ public class MyProtocol{
             // 124 DEC is 444 PENT
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5,(packet.ackNum / 5) % 5, packet.ackNum % 5};
 
-            unicastRoutes = new ArrayList<>();
+            routing.unicastRoutes = new ArrayList<>();
             for (int i = 0; i < route_numbers.length; i++) {
 
                 List<Integer> ip_list = new ArrayList<>(Arrays.asList(0,1,2,3));
@@ -1287,17 +1279,17 @@ public class MyProtocol{
                 ip_list.remove(i); // this will remove by index, not element
                 int order = route_numbers[i];
                 List<Integer> unicastRoute = Mathematics.decodePermutationOfTwo(order, ip_list);
-                unicastRoutes.add(unicastRoute);
+                routing.unicastRoutes.add(unicastRoute);
             }
-            unicastRouteToMaster = unicastRoutes.get(all_ips.indexOf(sourceIP));
+            routing.unicastRouteToMaster = routing.unicastRoutes.get(all_ips.indexOf(routing.sourceIP));
 
             int hops = packet.destIP;
             try {
-                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
                     // You have to forward this time
                     packet.destIP += 1;
                     sendSmallPacket(packet);
-                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
                             startRequestSlavePhase();
@@ -1307,7 +1299,7 @@ public class MyProtocol{
                     timer.start(); // Go go g
 
                 } else {
-                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
                             startRequestSlavePhase();
