@@ -385,9 +385,82 @@ public class MyProtocol{
     }
 
     private List<Integer> getMulticastForwardingRoute() {
+        int firstIP = sourceIP;
+        List<Integer> explored = new ArrayList<>();
+        List<List<Integer>> exploredPaths = new ArrayList<>();
 
-        // TODO @Freek implement spanning tree
-        return new ArrayList<>();
+        List<Integer> frontier = new ArrayList<>();
+        List<List<Integer>> frontierPaths = new ArrayList<>();
+
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            if (i!=firstIP && longTopology[firstIP][i]){
+                frontier.add(i);
+                frontierPaths.add(new ArrayList<Integer>());
+            }
+        }
+
+        boolean done = false;
+        while (!done) {
+            int nodeCost = 99999;
+            int node_index = -1;
+            for (int i = 0; i < frontier.size(); i++) {
+                if (frontierPaths.get(i).size() < nodeCost) {
+                    nodeCost = frontierPaths.get(i).size();
+                    node_index = i;
+                }
+            }
+            int node_to_explore = frontier.remove(node_index);
+            List<Integer> nodePath = frontierPaths.remove(node_index);
+
+
+            explored.add(node_to_explore);
+            exploredPaths.add(nodePath);
+
+            List<Integer> newNodePath = nodePath.subList(0,nodePath.size());
+            newNodePath.add(node_to_explore);
+
+
+            for (int unknownNode = 0; unknownNode <= highest_assigned_ip; unknownNode++) {
+                if (unknownNode!=node_to_explore && longTopology[node_to_explore][unknownNode] && !explored.contains(unknownNode)){
+                    // We found a path to a node we haven't explored yet
+                    if (!frontier.contains(unknownNode)) {
+                        frontier.add(unknownNode);
+                        frontierPaths.add(newNodePath);
+                    } else {
+                        // We found a node that's already in the frontier
+                        int unknownNodeFrontierIndex = frontier.indexOf(unknownNode);
+                        List<Integer> unknownNodeFrontierPath = frontierPaths.get(unknownNodeFrontierIndex);
+                        if (newNodePath.size() < unknownNodeFrontierPath.size()) {
+                            frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
+                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()){
+                            boolean thisPathIsBetter = false;
+                            for (int i = 0; i < newNodePath.size(); i++) {
+                                if (newNodePath.get(i) > unknownNodeFrontierPath.get(i)) {
+                                    break;
+                                } else if (newNodePath.get(i) < unknownNodeFrontierPath.get(i)) {
+                                    thisPathIsBetter = true;
+                                }
+                                if (thisPathIsBetter) {
+                                    frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            done = frontier.size()==0;
+
+
+        }
+        List<Integer> multicastPath = new ArrayList<>();
+        for (List<Integer> path: exploredPaths) {
+            for (Integer pathNode: path) {
+                if (!multicastPath.contains(pathNode)) {
+                    multicastPath.add(pathNode);
+                }
+            }
+        }
+        return multicastPath;
     }
 
     private List<Integer> getUnicastForwardingRoute(int firstIP, int secondIP) {
@@ -561,7 +634,7 @@ public class MyProtocol{
         int delay = 40*1000;
         neighbor_expiration_time[neighborIP] = System.currentTimeMillis() + delay;
 
-        Timer neighbor_expiration_timer = new Timer(delay + 1, new ActionListener() { // TODO @Freek multiple timers..?
+        Timer neighbor_expiration_timer = new Timer(delay + 1, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 checkRoutingTableExpirations();
