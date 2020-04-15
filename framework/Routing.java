@@ -8,17 +8,20 @@ import java.util.Arrays;
 import java.util.List;
 
 public class Routing {
-    boolean[] neighbor_available = new boolean[4];
-    long[] neighbor_expiration_time = new long[4];
-    boolean[] shortTopology;
-    boolean[][] longTopology;
+    boolean[] neighbor_available = new boolean[4]; // List of booleans for each node, specifies if we have a direct path to them or not
+    long[] neighbor_expiration_time = new long[4]; // Last_seen_time+TTL for each neighbor.
+    boolean[][] longTopology; // Network topology stored as a 4x4 adjacency matrix
+    boolean[] shortTopology; // Because the adjacency matrix is symmetric and the diagonal is uninteresting
+                             // (of course a node can send to itself, we do not need to store that information),
+                             // we only need a list of 6 booleans to store the same information as in longTopology
     int highest_assigned_ip = -1;
     int sourceIP = -1;
-    List<Integer> postNegotiationSlaveforwardingScheme;
-    List<Integer> unicastRouteToMaster;
+    List<Integer> postNegotiationSlaveforwardingScheme; // List of IPs that need to forward packets sent by the master node when multicasting
+    List<Integer> unicastRouteToMaster; // List of IPs that need to forward packets that we send to the master node
     List<List<Integer>> unicastRoutes = new ArrayList<>();
 
     List<Integer> getMulticastForwardingRoute(int firstIP) {
+        // Use Dijkstra's to find the nodes needed to forward a packet to all nodes (a sort of spanning tree)
         List<Integer> explored = new ArrayList<>();
         List<List<Integer>> exploredPaths = new ArrayList<>();
 
@@ -26,14 +29,15 @@ public class Routing {
         List<List<Integer>> frontierPaths = new ArrayList<>();
 
         for (int i = 0; i <= highest_assigned_ip; i++) {
-            if (i != firstIP && longTopology[firstIP][i]) {
-                frontier.add(i);
+            if (i != firstIP && longTopology[firstIP][i]) { // If this IP is our neighbor and it is not us
+                frontier.add(i); // Add it to the frontier
                 frontierPaths.add(new ArrayList<Integer>());
             }
         }
 
         boolean done = false;
         while (!done) {
+            // This while loop is basically Dijkstra's algorithm
             int nodeCost = 99999;
             int node_index = -1;
             for (int i = 0; i < frontier.size(); i++) {
@@ -68,6 +72,7 @@ public class Routing {
                         int unknownNodeFrontierIndex = frontier.indexOf(unknownNode);
                         List<Integer> unknownNodeFrontierPath = frontierPaths.get(unknownNodeFrontierIndex);
                         if (newNodePath.size() < unknownNodeFrontierPath.size()) {
+                            // If this path is shorter, change the path of the node in the frontier
                             frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
                         } else if (newNodePath.size() == unknownNodeFrontierPath.size()) {
                             boolean thisPathIsBetter = false;
@@ -77,7 +82,7 @@ public class Routing {
                                 } else if (newNodePath.get(i) < unknownNodeFrontierPath.get(i)) {
                                     thisPathIsBetter = true;
                                 }
-                                if (thisPathIsBetter) {
+                                if (thisPathIsBetter) { // We found a path that covers node with lower IPs, which technically makes it better. Replace the path in the frontier.
                                     frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
                                 }
                             }
@@ -93,7 +98,7 @@ public class Routing {
         for (List<Integer> path : exploredPaths) {
             for (Integer pathNode : path) {
                 if (!multicastPath.contains(pathNode)) {
-                    multicastPath.add(pathNode);
+                    multicastPath.add(pathNode); // Add all the shortest paths to the explored nodes to get the multicast path
                 }
             }
         }
@@ -101,6 +106,7 @@ public class Routing {
     }
 
     public List<Integer> getUnicastForwardingRoute(int firstIP, int secondIP) {
+        // Use Dijkstra's to find the shortest route from node A to B. Basically the same as the previous method but without the tree part.
         List<Integer> explored = new ArrayList<>();
         List<List<Integer>> exploredPaths = new ArrayList<>();
 
@@ -175,6 +181,7 @@ public class Routing {
     }
 
     public int getLinkTopologyBits() {
+        // Convert the shortened 6-boolean form of the 4x4 adjacency matrix to a 6-bit number
         int resultNumber = 0;
         for (int i = 0; i < shortTopology.length; i++) {
             // start from left
@@ -184,15 +191,20 @@ public class Routing {
     }
 
     public void saveTopology(int receivedTopology) {
+        // Convert a 6-bit number that we received to 6 booleans, and store it in shortTopology
         shortTopology = new boolean[6];
         longTopology = new boolean[4][4];
         for (int i = 0; i < shortTopology.length; i++) {
             shortTopology[i] = ((receivedTopology & (1 << (5 - i))) >> (5 - i)) == 1;
         }
-        updateLongTopologyFromShortTopology();
+        updateLongTopologyFromShortTopology(); // Also store this in the 4x4 adjacency matrix, longTopology
     }
 
     public int mergeTopologies(List<Integer> topologyNumbers) {
+        // Given 0-3 lists of suspected topologies (submitted by slave nodes), the master node calculates the network's topology
+        // All we really do here is paste the nth row of the adjacency matrix of each node n into the result matrix
+        // (obviously it is the most knowledgeable about its own neighbors, which are found in row n of the matrix)
+        // and then make that matrix symmetric
         List<boolean[]> shortTopologies = new ArrayList<>();
         List<boolean[][]> longTopologies = new ArrayList<>();
         boolean[][] resultTopology = new boolean[4][4];
@@ -229,7 +241,7 @@ public class Routing {
             longTopologies.add(currentlongTopology);
 
             for (int j = 0; j <= highest_assigned_ip; j++) {
-                resultTopology[i][j] = currentlongTopology[i][j]; // TODO @freek GOES wrong here because no reqs come in. Thus we only look at our own, and it'll never be symmetric
+                resultTopology[i][j] = currentlongTopology[i][j];
             }
         }
 
@@ -240,7 +252,11 @@ public class Routing {
                     resultTopology[k][l] = true;
                 }
                 if (resultTopology[k][l] != resultTopology[l][k]) {
-                    resultTopology[k][l] = true; // TODO @Freek quick hotfix making true here. Should be false, really.
+                    resultTopology[k][l] = true; // TODO under ideal circumstances, both these lines should be setting it to false
+                                                 // if two nodes disagree about whether they have a connection, they probably don't have one
+                                                 // but because setting it to false here when you don't receive all the request phase packets
+                                                 // (which happens due to us losing timing synchronization) leads to index out of bound errors and null pointers later on,
+                                                 // we decided to leave it to true. If we were to fix our synchronization issues, this should be set to false.
                     resultTopology[l][k] = true;
                 }
             }
@@ -264,6 +280,7 @@ public class Routing {
     }
 
     public void updateNeighbors(int neighborIP) {
+        // Adds an IP to the table of neighbors. Updates shortTopology and longTopology from there. Also sets a timeout, for when the node should be removed.
         checkRoutingTableExpirations();
         neighbor_available[sourceIP] = false; // never list ourselves as neighbor
         neighbor_available[neighborIP] = true;
@@ -276,12 +293,15 @@ public class Routing {
                 checkRoutingTableExpirations();
             }
         });
-        neighbor_expiration_timer.setRepeats(false); // Only execute once
-        neighbor_expiration_timer.start(); // Go go go!
+        neighbor_expiration_timer.setRepeats(false);
+        neighbor_expiration_timer.start();
         updateTopologyFromAvailableNeighbors();
     }
 
     public void updateLongTopologyFromShortTopology() {
+        // because a 4x4 adjacency matrix is symmetric and has diagonal of all 1s (or 0s, depending on your interpretation of whether a node has an edge to itself or not)
+        // you can store all its information in only 6 values
+        // from those 6 values, stored in ShortTopology, we can update the longTopology (matrix)
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
                 if (i == j) {
@@ -289,7 +309,7 @@ public class Routing {
                 }
                 if (i == 0 && j > 0) {
                     longTopology[0][j] = shortTopology[j - 1];
-                    longTopology[j][0] = shortTopology[j - 1];;
+                    longTopology[j][0] = shortTopology[j - 1]; // To make it symmetric
                 }
                 if (i == 1 && j > 1) {
                     longTopology[1][j] = shortTopology[j + 1];
@@ -305,6 +325,7 @@ public class Routing {
     }
 
     public void updateShortTopologyFromLongTopology() {
+        // Other way around
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
                 if (i == 0 && j > 0) {

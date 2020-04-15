@@ -171,8 +171,8 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private void startSentDiscoveryPhase() throws InterruptedException {
@@ -197,8 +197,8 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
@@ -233,8 +233,8 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
 
     }
 
@@ -262,8 +262,8 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
 
     }
 
@@ -281,8 +281,8 @@ public class MyProtocol {
 
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private void startNegotiationStrangerPhase() throws InterruptedException {
@@ -317,8 +317,8 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go go!
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private void startPostNegotiationMasterPhase() throws InterruptedException {
@@ -435,7 +435,7 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
+        timer.setRepeats(false);
         timer.start(); // Go go g
 
 
@@ -592,7 +592,7 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
+        timer.setRepeats(false);
         timer.start(); // Go go g
 
     }
@@ -633,7 +633,7 @@ public class MyProtocol {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
+        timer.setRepeats(false);
         timer.start(); // Go go g
 
     }
@@ -786,7 +786,7 @@ public class MyProtocol {
                             startRequestMasterPhase();
                         }
                     });
-                    timer.setRepeats(false); // Only execute once
+                    timer.setRepeats(false);
                     timer.start(); // Go go g
                 }
                 break;
@@ -902,7 +902,7 @@ public class MyProtocol {
                                         startDataPhase();
                                     }
                                 });
-                                timer.setRepeats(false); // Only execute once
+                                timer.setRepeats(false);
                                 timer.start(); // Go go g
 
                             } else {
@@ -912,7 +912,7 @@ public class MyProtocol {
                                         startDataPhase();
                                     }
                                 });
-                                timer.setRepeats(false); // Only execute once
+                                timer.setRepeats(false);
                                 timer.start(); // Go go g
                             }
                         } catch (InterruptedException e) {
@@ -1057,7 +1057,7 @@ public class MyProtocol {
                             startRequestSlavePhase();
                         }
                     });
-                    timer.setRepeats(false); // Only execute once
+                    timer.setRepeats(false);
                     timer.start(); // Go go g
 
                 } else {
@@ -1067,7 +1067,7 @@ public class MyProtocol {
                             startRequestSlavePhase();
                         }
                     });
-                    timer.setRepeats(false); // Only execute once
+                    timer.setRepeats(false);
                     timer.start(); // Go go g
                 }
             } catch (InterruptedException e) {

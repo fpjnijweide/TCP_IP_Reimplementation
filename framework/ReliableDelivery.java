@@ -124,7 +124,7 @@ public class ReliableDelivery {
                 }
             }
         });
-        timer.setRepeats(false); // Only execute once
+        timer.setRepeats(false);
         timer.start(); // Go go g
     }
 
