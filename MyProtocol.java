@@ -1015,18 +1015,33 @@ public class MyProtocol{
                         }
                         if (!packet.negotiate && packet.request && packet.broadcast) {
                             timer.stop();
-                            startPostRequestSlavePhase(packet); // TODO Might not even be a small packet...
+                            startPostRequestSlavePhase(packet);
                         }
                         break;
 
                 }
                 break;
             case POST_REQUEST_MASTER:
-                // TODO @freek do we even expect any data here..?
+                // do we even expect any data here..?
                 break;
             case POST_REQUEST_SLAVE:
-                // TODO @Freek catch the second packet on the receiving side
-                // TODO @Freek change state when time is right: on the receiving side (calculate multicast hops)
+                switch (type) {
+                    case DATA_SHORT:
+                        System.out.println("DATA_SHORT");
+                        printByteBuffer(bytes, false); //Just print the data
+                        SmallPacket packet = readSmallPacket(bytes);
+                        if (!packet.negotiate && packet.request && packet.broadcast) {
+                            int second_person_requested_timeslot = timeslotsRequested.get(1) | ((packet.ackFlag?1:0) << 1) | packet.destIP;
+                            int third_person_requested_timeslot = ((packet.SYN?1:0) << 7) | ((packet.ackNum & 0b01110000) >> 4);
+                            int fourth_person_requested_timeslot = packet.ackNum & 0b1111;
+                            timeslotsRequested.set(1,second_person_requested_timeslot);
+                            timeslotsRequested.set(2,third_person_requested_timeslot);
+                            timeslotsRequested.set(3,fourth_person_requested_timeslot);
+                            // TODO @Freek forward
+                            // TODO @Freek change state when time is right: on the receiving side (calculate multicast hops)
+                        }
+                }
+
 
                 break;
             case READY:
