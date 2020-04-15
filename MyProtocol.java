@@ -272,6 +272,8 @@ public class MyProtocol{
                     try {
                         sourceIP = 0;
                         highest_assigned_ip = 0;
+                        shortTopology = new boolean[6];
+                        longTopology = new boolean[4][4];
                         startTimingMasterPhase(8);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
@@ -428,7 +430,11 @@ public class MyProtocol{
                     node_index = i;
                 }
             }
-            int node_to_explore = frontier.remove(node_index);
+            if (node_index==-1){
+                done=true;
+                break;
+            }
+            int node_to_explore = frontier.remove(node_index); // TODO hier gaat het fout
             List<Integer> nodePath = frontierPaths.remove(node_index);
 
 
@@ -753,18 +759,20 @@ public class MyProtocol{
         all_ips.remove(sourceIP);
         for (int i = 0; i < all_ips.size(); i++) {
             int destinationIP = all_ips.get(i);
-            List<Integer> relevant_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
-            relevant_ips.remove(sourceIP);
-            relevant_ips.remove(destinationIP);
+            if (destinationIP<=highest_assigned_ip) {
+                List<Integer> relevant_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
+                relevant_ips.remove(sourceIP);
+                relevant_ips.remove(destinationIP);
 
-            List<Integer> unicastRoute = getUnicastForwardingRoute(destinationIP,sourceIP);
-            int first_hop = unicastRoute.size() > 0? unicastRoute.get(0) : -1;
-            int second_hop = unicastRoute.size() > 1? unicastRoute.get(1) : -1;
+                List<Integer> unicastRoute = getUnicastForwardingRoute(destinationIP, sourceIP);
+                int first_hop = unicastRoute.size() > 0 ? unicastRoute.get(0) : -1;
+                int second_hop = unicastRoute.size() > 1 ? unicastRoute.get(1) : -1;
 
-            int first_hop_index = relevant_ips.indexOf(first_hop);
-            int second_hop_index = relevant_ips.indexOf(second_hop);
+                int first_hop_index = relevant_ips.indexOf(first_hop);
+                int second_hop_index = relevant_ips.indexOf(second_hop);
 
-            unicast_route_number[i] = encodePermutationOfTwo(first_hop_index,second_hop_index);
+                unicast_route_number[i] = encodePermutationOfTwo(first_hop_index, second_hop_index);
+            }
         }
         return unicast_route_number[0]*5*5  + unicast_route_number[1]*5 + unicast_route_number[2];
     }
@@ -846,7 +854,8 @@ public class MyProtocol{
         // maybe do things here..? but we don't have to forward anything
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
-
+        shortTopology = new boolean[6];
+        longTopology = new boolean[4][4];
         postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
     }
 
@@ -974,6 +983,9 @@ public class MyProtocol{
         topologyNumbers.add(sourceIP,getLinkTopologyBits());
 
         timeslotsRequested.add(sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
+        while (timeslotsRequested.size()<4) {
+            timeslotsRequested.add(0);
+        }
         int hops = 0;
 
         boolean packet1_ackflag = ((timeslotsRequested.get(0) & 0b1000) >> 3 ) == 1;
