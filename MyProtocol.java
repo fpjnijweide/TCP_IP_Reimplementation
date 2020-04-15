@@ -34,6 +34,7 @@ public class MyProtocol{
     List<List<Integer>> unicastRoutes;
     private int current_master;
     private List<SmallPacket> requestPackets = new ArrayList<>();
+    private List<SmallPacket> forwardedPackets = new ArrayList<>();
 
 
     public enum State{
@@ -567,18 +568,28 @@ public class MyProtocol{
         SmallPacket packet = new SmallPacket(sourceIP,bit_1_and_2, link_topology_bits,bit_3,true,false,bit_4,false);
         sendSmallPacket(packet);
 
-        int delay_until_post_request_phase = 0;
+//        int delay_until_post_request_phase = 0;
+//
+//        for (int i = sourceIP; i < all_ips.size(); i++) {
+//            if (all_ips.get(i)<=highest_assigned_ip) {
+//                if (i>sourceIP) {
+//                    delay_until_post_request_phase += 1; // Timeslot that a node sends.
+//                }
+//                delay_until_post_request_phase += unicastRoutes.get(i).size();
+//            }
+//
+//        }
 
-        for (int i = sourceIP; i < all_ips.size(); i++) {
-            if (all_ips.get(i)<=highest_assigned_ip) {
-                if (i>sourceIP) {
-                    delay_until_post_request_phase += 1; // Timeslot that a node sends.
-                }
-                delay_until_post_request_phase += unicastRoutes.get(i).size();
-            }
+    }
 
-        }
+    private void startPostRequestMasterPhase() {
 
+    }
+
+    private void startPostRequestSlavePhase(SmallPacket packet) {
+        // TODO set state
+        // TODO clear forwardedPackets
+        // TODO start of data phase depends on the "hop" counter in this packet.
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -858,6 +869,7 @@ public class MyProtocol{
                                 int hops = packet.ackNum >> 5;
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
+                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
                                     packet.ackNum += (1 << 5);
                                     try {
                                         sendSmallPacket(packet);
@@ -892,6 +904,7 @@ public class MyProtocol{
                                 int hops = packet.ackNum >> 5;
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
+                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
                                     packet.ackNum += (1 << 5);
                                     try {
                                         sendSmallPacket(packet);
@@ -933,18 +946,18 @@ public class MyProtocol{
                         all_ips.remove(current_master);
                         if (!packet.broadcast && !packet.negotiate && packet.request) {
                             // If we are in the route of the person that sent this packet
-                            if (unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(sourceIP)) { // TODO THIS MIGHT NOT WORK
+                            if (unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(sourceIP) && !forwardedPackets.contains(packet)) { // TODO THIS MIGHT NOT WORK
                                 try {
                                     sendSmallPacket(packet); // We have to forward it
+                                    forwardedPackets.add(packet);
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
                                 }
-                                // TODO @Freek unless we saw it before!
                             }
                         }
                         if (!packet.negotiate && packet.request && packet.broadcast) {
                             timer.stop();
-                            startPostRequestSlavePhase(packet); // TODO start of data phase depends on the "hop" counter in this packet. Might not even be a small packet...
+                            startPostRequestSlavePhase(packet); // TODO Might not even be a small packet...
                         }
                         break;
 
@@ -999,6 +1012,8 @@ public class MyProtocol{
         }
 
     }
+
+
 
     private void finalPostNegotiationHandler(SmallPacket packet) {
         // Handles slave/stranger side of final post negotiation phase packet
