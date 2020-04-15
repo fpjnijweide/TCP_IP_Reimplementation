@@ -1041,37 +1041,67 @@ public class MyProtocol{
         for (int i = 0; i < sourceIP; i++) {
             delay_until_we_send += timeslotsRequested.get(i);
         }
-        for (int i = sourceIP+1; i <= highest_assigned_ip; i++) {
+        for (int i = sourceIP + 1; i <= highest_assigned_ip; i++) {
             delay_after_we_send += timeslotsRequested.get(i);
         }
 
-        wait(delay_until_we_send*LONG_PACKET_TIMESLOT);
+        int finalDelay_after_we_send = delay_after_we_send;
+        Timer timer = new Timer((delay_until_we_send*LONG_PACKET_TIMESLOT), new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    dataPhaseSecondPart(finalDelay_after_we_send);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
 
-        for (SmallPacket packet: dataPhaseSmallPacketBuffer) {
+    }
+    private void dataPhaseSecondPart(int delay_after_we_send) throws InterruptedException {
+
+        for (SmallPacket packet : dataPhaseSmallPacketBuffer) {
             sendSmallPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
             } else {
                 forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
             }
-            wait(forwardingTime*SHORT_PACKET_TIMESLOT);
+            sleep(forwardingTime * SHORT_PACKET_TIMESLOT);
         }
         dataPhaseSmallPacketBuffer.clear();
 
-        for (BigPacket packet: dataPhaseBigPacketBuffer) {
+        for (BigPacket packet : dataPhaseBigPacketBuffer) {
             sendPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
-                forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+                forwardingTime = getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
             } else {
                 forwardingTime = getMulticastForwardingRoute(packet.sourceIP).size();
             }
-            wait(forwardingTime*LONG_PACKET_TIMESLOT);
+            sleep(forwardingTime * LONG_PACKET_TIMESLOT);
         }
         dataPhaseBigPacketBuffer.clear();
 
-        wait(delay_after_we_send*LONG_PACKET_TIMESLOT);
+        Timer timer = new Timer(delay_after_we_send * LONG_PACKET_TIMESLOT, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    dataPhaseThirdPart();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
+
+    }
+
+    public void dataPhaseThirdPart() throws InterruptedException {
         int next_master = (current_master + 1) % (highest_assigned_ip + 1);
         if (next_master == sourceIP) {
             startTimingMasterPhase(0);
