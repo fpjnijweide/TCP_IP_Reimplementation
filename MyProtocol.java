@@ -1064,7 +1064,7 @@ public class MyProtocol{
             delay_after_we_send += timeslotsRequested.get(i);
         }
 
-        int finalDelay_after_we_send = delay_after_we_send;
+        final int finalDelay_after_we_send = delay_after_we_send;
         Timer timer = new Timer((delay_until_we_send*LONG_PACKET_TIMESLOT), new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
