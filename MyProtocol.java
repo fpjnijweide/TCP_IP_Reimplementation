@@ -39,6 +39,8 @@ public class MyProtocol{
     boolean[] neighbor_available = new boolean[4];
     long[] neighbor_expiration_time = new long[4];
     private Timer neighbor_expiration_timer;
+    private boolean[] shortTopology;
+    private boolean[][] longToplogy;
 
 
     public enum State{
@@ -395,12 +397,38 @@ public class MyProtocol{
     }
 
     private int getLinkTopologyBits() {
+        // TODO calculate get short topology
         // TODO @Freek implement
         return 0;
     }
 
     public void saveTopology(int receivedTopology) {
-        // TODO @freek implement
+        shortTopology = new boolean[6];
+        longToplogy = new boolean[4][4];
+        for (int i = 0; i < shortTopology.length; i++) {
+            shortTopology[i] = ( ( receivedTopology & (1 << i) ) >> i ) == 1;
+        }
+
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            for (int j = 0; j <= highest_assigned_ip; j++) {
+                if (i==j) {
+                    longToplogy[i][j]=true;
+                }
+                if (i==0 && j>0) {
+                    longToplogy[0][j] = shortTopology[j-1];
+                }
+                if (i>0 && j<i) {
+                    longToplogy[i][j] = longToplogy[j][i];
+                }
+                if (i==1 && j>1) {
+                    longToplogy[1][j] = shortTopology[j+1];
+                }
+                if (i==2 && j > 2) {
+                    longToplogy[2][j] = shortTopology[j+2];
+
+                }
+            }
+        }
     }
 
     private void checkRoutingTableExpirations() {
