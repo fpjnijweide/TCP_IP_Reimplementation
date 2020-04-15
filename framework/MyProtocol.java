@@ -50,15 +50,13 @@ public class MyProtocol{
     private BlockingQueue<Message> sendingQueue;
 
     private boolean sending = false;
-    private List<Message> messagesToSend = new ArrayList<>();
-    private List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
 
     List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
     List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
     Routing routing = new Routing();
+    PacketHandling packetHandling;
 
     Timer timer;
-    List<Byte> buffer = new ArrayList<>();
 
 
     public enum State{
@@ -102,7 +100,7 @@ public class MyProtocol{
 
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
 
-
+         packetHandling = new PacketHandling(sendingQueue);
 
         // handle sending from stdin from this thread.
         try{
@@ -123,7 +121,7 @@ public class MyProtocol{
                     } else if (textString.equals("DISCOVERYNOW")) {
                         startDiscoveryPhase(0);
                     } else if (textString.equals("SMALLPACKET")) {
-                        sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
+                        packetHandling.sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
                     } else {
                         for (int i = 0; i < read-1; i+=28) {
                             byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
@@ -143,7 +141,7 @@ public class MyProtocol{
 
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
-                            sendPacket(new BigPacket(routing.sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
+                            packetHandling.sendPacket(new BigPacket(routing.sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
 
                         }
                     }
@@ -179,29 +177,11 @@ public class MyProtocol{
         timer.start(); // Go go go!
     }
 
-    public void sendPacket(BigPacket packet) throws InterruptedException {
-        ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
-        byte[] packetBytes = fillBigPacket(packet);
-        toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
-        Message msg = new Message(MessageType.DATA, toSend);
-        sending = true;
-        messagesToSend.add(0,msg);
-        sendingQueue.put(msg);
-    }
 
-    public void sendSmallPacket(SmallPacket packet) throws InterruptedException {
-        ByteBuffer toSend = ByteBuffer.allocate(2);
-        byte[] packetBytes = fillSmallPacket(packet);
-        toSend.put( packetBytes, 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
-        Message msg = new Message(MessageType.DATA_SHORT, toSend);
-        sending = true;
-        messagesToSend.add(0,msg);
-        sendingQueue.put(msg);
-    }
 
     private void startSentDiscoveryPhase() throws InterruptedException {
         SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,true,true,false,true);
-        sendSmallPacket(packet);
+        packetHandling.sendSmallPacket(packet);
         setState(State.SENT_DISCOVERY);
         timer = new Timer(2000, new ActionListener() {
             @Override
@@ -236,7 +216,7 @@ public class MyProtocol{
         }
 
         SmallPacket packet = new SmallPacket(routing.sourceIP,0,this.negotiation_phase_length,false,false,false,true,true);
-        sendSmallPacket(packet);
+        packetHandling.sendSmallPacket(packet);
         startNegotiationMasterPhase();
     }
 
@@ -319,7 +299,7 @@ public class MyProtocol{
             float roll = new Random().nextFloat() *(1+ ((float)this.negotiation_phases_encountered-1)/10);
             if (roll > 0.25) {
                 SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,false,true,false,true);
-                sendSmallPacket(packet);
+                packetHandling.sendSmallPacket(packet);
                 startNegotiationStrangerDonePhase();
                 return;
             } else {
@@ -355,7 +335,7 @@ public class MyProtocol{
         int hops = 0;
         int first_packet_ack_nr = hops << 6 | route;
         SmallPacket first_packet = new SmallPacket(routing.sourceIP, routing.sourceIP, first_packet_ack_nr,true,false,true,false,true);
-        sendSmallPacket(first_packet);
+        packetHandling.sendSmallPacket(first_packet);
 
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         List<Integer> received_tiebreakers = new ArrayList<>();
@@ -382,7 +362,7 @@ public class MyProtocol{
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
 
             SmallPacket promotionPacket = new SmallPacket(routing.sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
-            sendSmallPacket(promotionPacket);
+            packetHandling.sendSmallPacket(promotionPacket);
             routing.highest_assigned_ip = new_ip;
             routing.updateNeighbors(new_ip);
             sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
@@ -391,7 +371,7 @@ public class MyProtocol{
 
         int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
         SmallPacket final_packet = new SmallPacket(routing.sourceIP,hops,unicast_scheme,true,false,true,true,true);
-        sendSmallPacket(final_packet);
+        packetHandling.sendSmallPacket(final_packet);
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
         startRequestMasterPhase();
@@ -413,7 +393,7 @@ public class MyProtocol{
         if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
             // You have to forward this time
             packet.ackNum += (1 << 5);
-            sendSmallPacket(packet);
+            packetHandling.sendSmallPacket(packet);
         }
 
     }
@@ -492,7 +472,7 @@ public class MyProtocol{
         int link_topology_bits = routing.getLinkTopologyBits();
 
         SmallPacket packet = new SmallPacket(routing.sourceIP,bit_1_and_2, link_topology_bits,bit_3,true,false,bit_4,false);
-        sendSmallPacket(packet);
+        packetHandling.sendSmallPacket(packet);
 
 //        int delay_until_post_request_phase = 0;
 //
@@ -574,9 +554,9 @@ public class MyProtocol{
 
         List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
 
-        sendSmallPacket(first_packet);
+        packetHandling.sendSmallPacket(first_packet);
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
-        sendSmallPacket(second_packet);
+        packetHandling.sendSmallPacket(second_packet);
         sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
         requestPackets.clear();
@@ -607,7 +587,7 @@ public class MyProtocol{
             // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
             packet.sourceIP +=1;
             try {
-                sendSmallPacket(packet);
+                packetHandling.sendSmallPacket(packet);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -645,7 +625,7 @@ public class MyProtocol{
     private void dataPhaseSecondPart(int delay_after_we_send) throws InterruptedException {
 
         for (SmallPacket packet : dataPhaseSmallPacketBuffer) {
-            sendSmallPacket(packet);
+            packetHandling.sendSmallPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
                 forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
@@ -657,7 +637,7 @@ public class MyProtocol{
         dataPhaseSmallPacketBuffer.clear();
 
         for (BigPacket packet : dataPhaseBigPacketBuffer) {
-            sendPacket(packet);
+            packetHandling.sendPacket(packet);
             int forwardingTime;
             if (!packet.broadcast) {
                 forwardingTime = routing.getUnicastForwardingRoute(packet.sourceIP, packet.destIP).size();
@@ -692,79 +672,9 @@ public class MyProtocol{
         }
     }
 
-    public byte[] fillSmallPacket(SmallPacket packet) {
-        byte first_byte = (byte) (packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1:0) << 3 | (packet.request ? 1:0) << 2 | (packet.broadcast ? 1:0) << 1 | (packet.SYN ? 1:0));
-        byte second_byte = (byte) ((packet.negotiate? 1:0) << 7 | packet.ackNum);
-        return new byte[]{first_byte, second_byte};
-    }
 
-    public byte[] fillBigPacket(BigPacket packet) {
-        byte[] result = new byte[32];
-        byte[] first_two_bytes = fillSmallPacket(packet);
-        result[0] = first_two_bytes[0];
-        result[1] = first_two_bytes[1];
-        result[2] = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
-        result[3] = (byte) (packet.hops << 6 | (packet.size-1)); // three bits left here
-        for (int i = 4; i <= 31 ; i++) {
-            result[i] = packet.payload[i-4];
-        }
-        return result;
-    }
 
-    public SmallPacket readSmallPacket(byte[] bytes) {
-        SmallPacket packet = new SmallPacket();
-        packet.sourceIP = (bytes[0] >> 6) & 0x03;
-        packet.destIP = (bytes[0] >> 4) & 0x03;
-        packet.ackFlag = ((bytes[0] >> 3) & 0x01)==1;
-        packet.request = ((bytes[0] >> 2) & 0x01)==1;
-        packet.broadcast = ((bytes[0] >> 1) & 0x01)==1;
-        packet.SYN = (bytes[0]  & 0x01)==1;
 
-        packet.negotiate = ((bytes[1] >> 7) & 0x01)==1;
-        packet.ackNum = bytes[1] & 0x7F;
-
-        return packet;
-    }
-
-    public BigPacket readBigPacket(byte[] bytes) {
-        SmallPacket smallPacket = readSmallPacket(bytes);
-        boolean morePackFlag = ((bytes[2] >> 7) & 0x01)==1;
-        int seqNum = bytes[2] & 0x7F;
-        int size = (bytes[3] & 0b00011111) + 1;
-        int hops = (bytes[3] & 0b11000000) >> 6;
-        if (size>32){
-            System.err.println("Packet size is too big");
-        }
-        byte[] payload = new byte[28];
-        byte[] payloadWithoutPadding = new byte[size-4];
-
-        for (int i = 4; i <= 31; i++) {
-            payload[i-4] = bytes[i];
-            if (i<size) {
-                payloadWithoutPadding[i-4] = bytes[i];
-            }
-        }
-        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, payloadWithoutPadding, seqNum, morePackFlag, size, hops);
-        return packet;
-    }
-
-    public byte[] appendToBuffer(BigPacket packet) {
-        // todo ewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
-        for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
-            buffer.add(packet.payloadWithoutPadding[i]);
-        }
-
-        if (packet.morePackFlag) {
-            return new byte[]{};
-        } else {
-            byte[] bufferCopy = new byte[buffer.size()];
-            for (int i = 0; i < buffer.size(); i++) {
-                bufferCopy[i] = buffer.get(i);
-            }
-            buffer.clear();
-            return bufferCopy;
-        }
-    }
 
     public static void main(String args[]) {
         int sourceIP= -1;
@@ -841,7 +751,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
 
                         if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                             timer.stop();
@@ -859,7 +769,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
                         boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
 
@@ -887,7 +797,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
                                 timer.stop();
@@ -906,7 +816,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && !packet.ackFlag && !packet.request) {
                             negotiatedPackets.add(packet);
                         }
@@ -919,7 +829,7 @@ public class MyProtocol{
 //                    case DATA_SHORT:
 //                        System.out.println("DATA_SHORT");
 //                        printByteBuffer(bytes, false); //Just print the data
-//                        SmallPacket packet = readSmallPacket(bytes);
+//                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
 //                        break;
 //                }
 
@@ -930,7 +840,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
                             timer.stop();
                             startTimingStrangerPhase(packet.ackNum);
@@ -944,7 +854,7 @@ public class MyProtocol{
                         // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP == packet.destIP) {
                                 timer.stop();
@@ -963,7 +873,7 @@ public class MyProtocol{
                         // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
                                 routing.highest_assigned_ip = packet.destIP;
@@ -975,7 +885,7 @@ public class MyProtocol{
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
                                     packet.ackNum += (1 << 5);
                                     try {
-                                        sendSmallPacket(packet);
+                                        packetHandling.sendSmallPacket(packet);
                                     } catch (InterruptedException e) {
                                         e.printStackTrace();
                                     }
@@ -992,7 +902,7 @@ public class MyProtocol{
                         // wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
                                 if (routing.sourceIP != -1) {
@@ -1013,7 +923,7 @@ public class MyProtocol{
 //                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
 //                                    packet.ackNum += (1 << 5);
 //                                    try {
-//                                        sendSmallPacket(packet);
+//                                        packetHandling.sendSmallPacket(packet);
 //                                    } catch (InterruptedException e) {
 //                                        e.printStackTrace();
 //                                    }
@@ -1035,7 +945,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (!packet.broadcast && !packet.negotiate && packet.request) {
                             requestPackets.add(packet);
                         }
@@ -1047,7 +957,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
                         all_ips.remove(current_master);
                         if (!packet.broadcast && !packet.negotiate && packet.request) {
@@ -1055,7 +965,7 @@ public class MyProtocol{
 
                             if (routing.unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(routing.sourceIP) && !forwardedPackets.contains(packet)) { // TODO THIS MIGHT NOT WORK
                                 try {
-                                    sendSmallPacket(packet); // We have to forward it
+                                    packetHandling.sendSmallPacket(packet); // We have to forward it
                                     forwardedPackets.add(packet);
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
@@ -1078,7 +988,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket packet = readSmallPacket(bytes);
+                        SmallPacket packet = packetHandling.readSmallPacket(bytes);
                         if (!packet.negotiate && packet.request && packet.broadcast) {
                             int second_person_requested_timeslot = timeslotsRequested.get(1) | ((packet.ackFlag?1:0) << 1) | packet.destIP;
                             int third_person_requested_timeslot = ((packet.SYN?1:0) << 7) | ((packet.ackNum & 0b01110000) >> 4);
@@ -1093,7 +1003,7 @@ public class MyProtocol{
 
                                     // You have to forward this time
                                     packet.sourceIP += 1;
-                                    sendSmallPacket(packet);
+                                    packetHandling.sendSmallPacket(packet);
                                     Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                                         @Override
                                         public void actionPerformed(ActionEvent arg0) {
@@ -1134,7 +1044,7 @@ public class MyProtocol{
                     case DATA_SHORT:
                         System.out.println("DATA_SHORT");
                         printByteBuffer(bytes, false); //Just print the data
-                        SmallPacket smallPacket = readSmallPacket(bytes);
+                        SmallPacket smallPacket = packetHandling.readSmallPacket(bytes);
                         if (smallPacket.broadcast) {
                             throw new RuntimeException("Small packets cannot be multicast because they lack a hops field");
                         }
@@ -1146,7 +1056,7 @@ public class MyProtocol{
                             if (!forwardedPackets.contains(smallPacket)){
                                 forwardedPackets.add(smallPacket);
                                 try {
-                                    sendSmallPacket(smallPacket);
+                                    packetHandling.sendSmallPacket(smallPacket);
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
                                 }
@@ -1156,7 +1066,7 @@ public class MyProtocol{
 //                            if (!forwardedPackets.contains(smallPacket)){
 //                                forwardedPackets.add(smallPacket);
 //                                try {
-//                                    sendSmallPacket(smallPacket);
+//                                    packetHandling.sendSmallPacket(smallPacket);
 //                                } catch (InterruptedException e) {
 //                                    e.printStackTrace();
 //                                }
@@ -1166,7 +1076,7 @@ public class MyProtocol{
                     case DATA:
                         System.out.println("DATA");
                         printByteBuffer(bytes, false); //Just print the data
-                        BigPacket bigPacket = readBigPacket(bytes);
+                        BigPacket bigPacket = packetHandling.readBigPacket(bytes);
                         if (bigPacket.hops == 0) routing.updateNeighbors(bigPacket.sourceIP);
                         // TODO maybe use forwardedpackets again
                         // Forwarding (you might have to forward multicast packet even if you handle it)
@@ -1176,7 +1086,7 @@ public class MyProtocol{
                                 forwardedPackets.add(bigPacket);
                                 try {
                                     bigPacket.hops +=1;
-                                    sendPacket(bigPacket);
+                                    packetHandling.sendPacket(bigPacket);
                                     bigPacket.hops -=1;
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
@@ -1187,7 +1097,7 @@ public class MyProtocol{
                                 forwardedPackets.add(bigPacket);
                                 try {
                                     bigPacket.hops +=1;
-                                    sendPacket(bigPacket);
+                                    packetHandling.sendPacket(bigPacket);
                                     bigPacket.hops -=1;
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
@@ -1207,10 +1117,10 @@ public class MyProtocol{
 
                     case DATA:
                         System.out.println("DATA");
-                        BigPacket packet = readBigPacket(bytes);
+                        BigPacket packet = packetHandling.readBigPacket(bytes);
 
-                        if (packet.morePackFlag || buffer.size() > 0) {
-                            byte[] result = appendToBuffer(packet);
+                        if (packet.morePackFlag || packetHandling.buffer.size() > 0) {
+                            byte[] result = packetHandling.appendToBuffer(packet);
                             if (result.length > 0) {
                                 printByteBuffer(result, true);
                             }
@@ -1288,7 +1198,7 @@ public class MyProtocol{
                 if (routing.postNegotiationSlaveforwardingScheme.size()-1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
                     // You have to forward this time
                     packet.destIP += 1;
-                    sendSmallPacket(packet);
+                    packetHandling.sendSmallPacket(packet);
                     Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
@@ -1317,13 +1227,13 @@ public class MyProtocol{
     }
 
 
-    private void detectInterference(long delay) {
+    void detectInterference(long delay) {
         boolean interference = false;
         if (sending) {
             sending = false;
-            if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > SHORT_PACKET_TIMESLOT) {
+            if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > SHORT_PACKET_TIMESLOT) {
                 interference = true;
-            } else if (messagesToSend.get(0).getType() == MessageType.DATA && delay > LONG_PACKET_TIMESLOT) {
+            } else if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA && delay > LONG_PACKET_TIMESLOT) {
                 interference = true;
 
             }
@@ -1331,22 +1241,22 @@ public class MyProtocol{
                 System.out.println("\u001B[31mINTEFERFERENCE DETECTED\u001B[0m");
 
 
-                if (messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
-                    SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
+                if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT) {
+                    SmallPacket packet = packetHandling.readSmallPacket(packetHandling.messagesToSend.get(0).getData().array());
                     if (packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) {
                         // Our negotiation packet had interference, get rid of it
-                        messagesToSend.remove(0);
+                        packetHandling.messagesToSend.remove(0);
                     } else if (packet.negotiate && packet.broadcast && packet.request && !packet.ackFlag) {
                         // Our discovery packet had interference
-                        messagesToSend.remove(0);
+                        packetHandling.messagesToSend.remove(0);
                         timer.stop();
                         exponential_backoff*=2;
                         startDiscoveryPhase(exponential_backoff);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
-                        messagesToSend.remove(0);
+                        packetHandling.messagesToSend.remove(0);
                     } else if (packet.broadcast && packet.SYN) {
-                        messagesToSend.remove(0);
+                        packetHandling.messagesToSend.remove(0);
                         // Timing master packet. Rebroadcast!
                         try {
                             timer.stop();
@@ -1360,16 +1270,16 @@ public class MyProtocol{
                 }
 
             } else {
-                SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
+                SmallPacket packet = packetHandling.readSmallPacket(packetHandling.messagesToSend.get(0).getData().array());
                 if (state==State.NEGOTIATION_STRANGER) { // TODO possibly incorrect if
                     timer.stop();
                     startNegotiationStrangerDonePhase();
                 }
 
-                if (sentMessages.size() >= 1000) {
-                    sentMessages.remove(0);
+                if (packetHandling.sentMessages.size() >= 1000) {
+                    packetHandling.sentMessages.remove(0);
                 }
-                sentMessages.add(messagesToSend.remove(0));
+                packetHandling.sentMessages.add(packetHandling.messagesToSend.remove(0));
             }
         }
 
