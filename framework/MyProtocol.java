@@ -1144,7 +1144,6 @@ public class MyProtocol {
                 }
 
             }
-
             interference = delay > expectedDelay;
 
             if (interference) {
@@ -1155,18 +1154,18 @@ public class MyProtocol {
                     SmallPacket packet = packetHandling.readSmallPacket(packetHandling.messagesToSend.get(0).getData().array());
                     if (packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) {
                         // Our negotiation packet had interference, get rid of it
-                        packetHandling.messagesToSend.remove(0);
+                        packetHandling.messagesToSend.clear();
                     } else if (packet.negotiate && packet.broadcast && packet.request && !packet.ackFlag) {
                         // Our discovery packet had interference
-                        packetHandling.messagesToSend.remove(0);
+                        packetHandling.messagesToSend.clear();
                         timer.stop();
                         exponentialBackoff *= 2;
                         startDiscoveryPhase(exponentialBackoff);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
-                        packetHandling.messagesToSend.remove(0);
+                        packetHandling.messagesToSend.clear();
                     } else if (packet.broadcast && packet.SYN) {
-                        packetHandling.messagesToSend.remove(0);
+                        packetHandling.messagesToSend.clear();
                         // Timing master packet. Rebroadcast!
                         try {
                             timer.stop();
@@ -1188,7 +1187,8 @@ public class MyProtocol {
                 if (packetHandling.sentMessages.size() >= 1000) {
                     packetHandling.sentMessages.remove(0);
                 }
-                packetHandling.sentMessages.add(packetHandling.messagesToSend.remove(0));
+                packetHandling.sentMessages.addAll(packetHandling.messagesToSend);
+                packetHandling.messagesToSend.clear();
             }
         }
 
