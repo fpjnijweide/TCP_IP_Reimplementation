@@ -37,7 +37,6 @@ public class MyProtocol{
     List<Integer> timeslotsRequested;
     boolean[] neighbor_available = new boolean[4];
     long[] neighbor_expiration_time = new long[4];
-    private Timer neighbor_expiration_timer;
     private boolean[] shortTopology;
     private boolean[][] longTopology;
 
@@ -396,16 +395,19 @@ public class MyProtocol{
     }
 
     private int getLinkTopologyBits() {
-        // TODO calculate bits from short topology
-        // TODO @Freek implement
-        return 0;
+        int resultNumber = 0;
+        for (int i = 0; i < shortTopology.length; i++) {
+            // start from left
+            resultNumber |= (shortTopology[i]?1:0) << 5-i;
+        }
+        return resultNumber;
     }
 
     public void saveTopology(int receivedTopology) {
         shortTopology = new boolean[6];
         longTopology = new boolean[4][4];
         for (int i = 0; i < shortTopology.length; i++) {
-            shortTopology[i] = ( ( receivedTopology & (1 << i) ) >> i ) == 1;
+            shortTopology[i] = ( ( receivedTopology & (1 << (5-i)) ) >> (5-i) ) == 1;
         }
 
         updateLongTopologyFromShortTopology();
@@ -430,7 +432,7 @@ public class MyProtocol{
         int delay = 40*1000;
         neighbor_expiration_time[neighborIP] = System.currentTimeMillis() + delay;
 
-        neighbor_expiration_timer = new Timer(delay+1, new ActionListener() { // TODO @Freek multiple timers..?
+        Timer neighbor_expiration_timer = new Timer(delay + 1, new ActionListener() { // TODO @Freek multiple timers..?
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 checkRoutingTableExpirations();
