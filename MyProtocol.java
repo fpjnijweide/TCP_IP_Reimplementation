@@ -86,12 +86,13 @@ public class MyProtocol{
 
         // Fourth byte
         int size; // 5 bit number, range [0,31]
+        int hops; // 2 bit number, range [0,3]
 
         // Other bytes
         byte[] payload;
         byte[] payloadWithoutPadding;
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size, int hops) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.payload = new byte[28];
             for (int j = 0; j < size-4; j++) {
@@ -101,15 +102,17 @@ public class MyProtocol{
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
             this.size = size;
+            this.hops = hops;
         }
 
-        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size) {
+        public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payload, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size, int hops) {
             super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
             this.payload = payload;
             this.payloadWithoutPadding = payloadWithoutPadding;
             this.seqNum = seqNum;
             this.morePackFlag = morePackFlag;
             this.size = size;
+            this.hops = hops;
         }
     }
     // The host to connect to. Set this to localhost when using the audio interface tool.
@@ -189,7 +192,7 @@ public class MyProtocol{
 
                             boolean morePacketsFlag = read-1-i>28;
                             int size = morePacketsFlag? 32 : read-1-i+4;
-                            sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size));
+                            sendPacket(new BigPacket(sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
 
                         }
                     }
@@ -677,7 +680,7 @@ public class MyProtocol{
         result[0] = first_two_bytes[0];
         result[1] = first_two_bytes[1];
         result[2] = (byte) ((packet.morePackFlag?1:0) << 7 | packet.seqNum);
-        result[3] = (byte) (packet.size-1); // three bits left here
+        result[3] = (byte) (packet.hops << 6 | (packet.size-1)); // three bits left here
         for (int i = 4; i <= 31 ; i++) {
             result[i] = packet.payload[i-4];
         }
@@ -703,7 +706,8 @@ public class MyProtocol{
         SmallPacket smallPacket = readSmallPacket(bytes);
         boolean morePackFlag = ((bytes[2] >> 7) & 0x01)==1;
         int seqNum = bytes[2] & 0x7F;
-        int size = (bytes[3] & 0x1F) + 1;
+        int size = (bytes[3] & 0b00011111) + 1;
+        int hops = (bytes[3] & 0b11000000) >> 6;
         if (size>32){
             System.err.println("Packet size is too big");
         }
@@ -716,7 +720,7 @@ public class MyProtocol{
                 payloadWithoutPadding[i-4] = bytes[i];
             }
         }
-        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, payloadWithoutPadding, seqNum, morePackFlag, size);
+        BigPacket packet = new BigPacket(smallPacket.sourceIP, smallPacket.destIP, smallPacket.ackNum, smallPacket.ackFlag, smallPacket.request, smallPacket.negotiate, smallPacket.SYN, smallPacket.broadcast, payload, payloadWithoutPadding, seqNum, morePackFlag, size, hops);
         return packet;
     }
 
