@@ -91,47 +91,58 @@ public class MyProtocol {
         read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
         System.out.println(read - 1);
 
-        if (state == State.NULL) { // TODO actually use states here
-            System.out.println("Can't send messages while negotiating");
-        } else if (read > 0) {
+        if (read > 0) {
             ByteBuffer text = ByteBuffer.allocate(read - 1); // jave includes newlines in System.in.read, so -2 to ignore this
             text.put(temp.array(), 0, read - 1); // java includes newlines in System.in.read, so -2 to ignore this
             String textString = new String(text.array(), StandardCharsets.US_ASCII);
-            switch (textString) {
-                case "DISCOVERY":
-                    startDiscoveryPhase(exponentialBackoff);
-                    break;
-                case "DISCOVERYNOW":
-                    startDiscoveryPhase(0);
-                    break;
-                case "SMALLPACKET":
-                    packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
-                    break;
-                default:
-                    for (int i = 0; i < read - 1; i += 28) {
-                        byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
-                        System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+            if (state ==State.READY) {
+                switch (textString) {
+                    case "DISCOVERY":
+                        startDiscoveryPhase(exponentialBackoff);
+                        break;
+                    case "DISCOVERYNOW":
+                        startDiscoveryPhase(0);
+                        break;
+                    case "SMALLPACKET":
+                        packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
+                        break;
+                    default:
+                        for (int i = 0; i < read - 1; i += 28) {
+                            byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
+                            System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
-                        // TODO @Martijn implement sliding window here, sending side
+                            // TODO @Martijn implement sliding window here, sending side
 
-                        // TODO proper sequence number
-                        // TODO last ack received als field bijhouden
-                        // TODO last seq nr sent als field bjihouden
-                        // TODO SWS bijhouden als field
-                        // todo LAR+SWS (biggest sendable packet) bijhouden als field
-                        // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
+                            // TODO proper sequence number
+                            // TODO last ack received als field bijhouden
+                            // TODO last seq nr sent als field bjihouden
+                            // TODO SWS bijhouden als field
+                            // todo LAR+SWS (biggest sendable packet) bijhouden als field
+                            // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
 
 
-                        boolean morePacketsFlag = read - 1 - i > 28;
-                        int size = morePacketsFlag ? 32 : read - 1 - i + 4;
-                        packetHandling.sendPacket(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
+                            boolean morePacketsFlag = read - 1 - i > 28;
+                            int size = morePacketsFlag ? 32 : read - 1 - i + 4;
+                            packetHandling.sendPacket(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
 
-                    }
-                    break;
+                        }
+                        break;
+
+                }
+            } else {
+                for (int i = 0; i < read - 1; i += 28) {
+                    byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
+                    System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+                    boolean morePacketsFlag = read - 1 - i > 28;
+                    int size = morePacketsFlag ? 32 : read - 1 - i + 4;
+                    dataPhaseBigPacketBuffer.add(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
+                }
             }
         }
+
+
     }
 
     private void startDiscoveryPhase(int exponential_backoff) {
@@ -205,7 +216,7 @@ public class MyProtocol {
         exponentialBackoff = 1;
         timer = new Timer(10000, new ActionListener() {
             @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+            public void actionPerformed(ActionEvent arg0) {
                 if (state == State.TIMING_SLAVE) {
                     exponentialBackoff = 1;
                     startDiscoveryPhase(exponentialBackoff);
@@ -235,7 +246,7 @@ public class MyProtocol {
         exponentialBackoff = 1;
         timer = new Timer(20000, new ActionListener() {
             @Override
-            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+            public void actionPerformed(ActionEvent arg0) {
                 if (state == State.WAITING_FOR_TIMING_STRANGER) {
                     exponentialBackoff = 1;
                     startDiscoveryPhase(exponentialBackoff);
@@ -551,13 +562,12 @@ public class MyProtocol {
         timeslotsRequested.set(1, second_person_first_bit);
 
         if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
-
             // You have to forward this time
-            // Source IP is not included here. No forwarding possible.
-            // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
+            // Source IP is not included here. No proper forwarding possible.
             packet.sourceIP += 1;
             try {
                 packetHandling.sendSmallPacket(packet);
+                forwardedPackets.add(packet);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -802,12 +812,12 @@ public class MyProtocol {
                             int hops = packet.ackNum >> 5;
                             if (hops == 0) routing.updateNeighbors(packet.sourceIP);
                             if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
-
+                                // TODO maybe use forwardedpackets
                                 // You have to forward this time
-                                // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
                                 packet.ackNum += (1 << 5);
                                 try {
                                     packetHandling.sendSmallPacket(packet);
+                                    forwardedPackets.add(packet);
                                 } catch (InterruptedException e) {
                                     e.printStackTrace();
                                 }
@@ -837,17 +847,6 @@ public class MyProtocol {
 
                             int hops = packet.ackNum >> 5;
                             if (hops == 0) routing.updateNeighbors(packet.sourceIP);
-//                                if (routing.postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
-//                                    // You have to forward this time
-//                                    // TODO maybe we don't ever have to forward, just comment all this
-//                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
-//                                    packet.ackNum += (1 << 5);
-//                                    try {
-//                                        packetHandling.sendSmallPacket(packet);
-//                                    } catch (InterruptedException e) {
-//                                        e.printStackTrace();
-//                                    }
-//                                }
                         } else if (packet.SYN) {
                             if (routing.sourceIP != -1) {
                                 finalPostNegotiationHandler(packet);
