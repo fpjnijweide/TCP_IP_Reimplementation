@@ -381,17 +381,12 @@ public class MyProtocol{
         return new ArrayList<>();
     }
 
-    private List<Integer> getUnicastForwardingRoute(int sourceIP, Integer integer) {
+    private List<Integer> getUnicastForwardingRoute(int firstIP, int secondIP) {
         // TODO @Freek implement
         return new ArrayList<>();
     }
 
     private int getLinkTopologyBits() {
-        // TODO @Freek implement
-        return 0;
-    }
-
-    private int getLinkAwarenessBits() {
         // TODO @Freek implement
         return 0;
     }
@@ -425,7 +420,7 @@ public class MyProtocol{
             relevant_ips.remove(sourceIP);
             relevant_ips.remove(destinationIP);
 
-            List<Integer> unicastRoute = getUnicastForwardingRoute(sourceIP, destinationIP);
+            List<Integer> unicastRoute = getUnicastForwardingRoute(destinationIP,sourceIP);
             int first_hop = unicastRoute.size() > 0? unicastRoute.get(0) : -1;
             int second_hop = unicastRoute.size() > 1? unicastRoute.get(1) : -1;
 
@@ -574,17 +569,18 @@ public class MyProtocol{
     }
 
     private void startPostRequestMasterPhase() {
-        // TODO set state
-        // TODO loop through requestpackets
-        // TODO clear requestpackets
+        // TODO @Freek set state
+        // TODO @Freek loop through requestpackets
+        // TODO @Freek clear requestpackets
 
-        // TODO change state when the time is right
+        // TODO @Freek change state when the time is right
     }
 
     private void startPostRequestSlavePhase(SmallPacket packet) {
-        // TODO set state
-        // TODO clear forwardedPackets
-        // TODO start of data phase depends on the "hop" counter in this packet.
+        // TODO @Freek set state
+        // TODO @Freek clear forwardedPackets
+        // TODO @Freek start of data phase depends on the "hop" counter in this packet.
+        // TODO @Freek change state when time is right
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
