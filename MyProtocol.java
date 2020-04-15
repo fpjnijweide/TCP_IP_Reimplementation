@@ -39,6 +39,30 @@ public class MyProtocol{
     long[] neighbor_expiration_time = new long[4];
     private boolean[] shortTopology;
     private boolean[][] longTopology;
+    // The host to connect to. Set this to localhost when using the audio interface tool.
+    private static String SERVER_IP = "netsys2.ewi.utwente.nl"; //"127.0.0.1";
+    // The port to connect to. 8954 for the simulation server.
+    private static int SERVER_PORT = 8954;
+    // The frequency to use.
+    private static int frequency = 5400;
+    private int exponential_backoff = 1;
+    private State state = State.READY;
+
+    private BlockingQueue<Message> receivedQueue;
+    private BlockingQueue<Message> sendingQueue;
+
+    private boolean sending = false;
+    private List<Message> messagesToSend = new ArrayList<>();
+    private List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
+
+    List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
+    List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
+
+
+
+    Timer timer;
+    List<Byte> buffer = new ArrayList<>();
+    int sourceIP = -1;
 
 
     public enum State{
@@ -119,32 +143,14 @@ public class MyProtocol{
             this.hops = hops;
         }
     }
-    // The host to connect to. Set this to localhost when using the audio interface tool.
-    private static String SERVER_IP = "netsys2.ewi.utwente.nl"; //"127.0.0.1";
-    // The port to connect to. 8954 for the simulation server.
-    private static int SERVER_PORT = 8954;
-    // The frequency to use.
-    private static int frequency = 5400;
-    private int exponential_backoff = 1;
+
 
     public void setState(State state) {
         this.state = state;
         System.out.println("NEW STATE: " +state.toString());
     }
 
-    private State state = State.READY;
 
-    private BlockingQueue<Message> receivedQueue;
-    private BlockingQueue<Message> sendingQueue;
-
-    private boolean sending = false;
-    private List<Message> messagesToSend = new ArrayList<>();
-    private List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
-
-
-    Timer timer;
-    List<Byte> buffer = new ArrayList<>();
-    int sourceIP = -1;
 
     public MyProtocol(String server_ip, int server_port, int frequency, int sourceIP){
         receivedQueue = new LinkedBlockingQueue<Message>();
@@ -864,7 +870,7 @@ public class MyProtocol{
 
         wait(thisNodesSendTimeslot*SHORT_PACKET_TIMESLOT);
 
-        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want (just use messagesToSend?)
+        int how_many_timeslots_do_we_want = howManyTimeslotsDoWeWant();
         int bit_1_and_2 = (how_many_timeslots_do_we_want & 0b1100) >> 2;
         boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
         boolean bit_4 = (how_many_timeslots_do_we_want & 0b0001) == 1;
@@ -888,9 +894,26 @@ public class MyProtocol{
 
     }
 
+    private int howManyTimeslotsDoWeWant() {
+        float result = 0;
+        for (int i = 0; i < dataPhaseBigPacketBuffer.size(); i++) {
+            result += 1;
+            BigPacket packet = dataPhaseBigPacketBuffer.get(i);
+            int forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            result += forwardingTime;
+        }
+        for (int i = 0; i < dataPhaseSmallPacketBuffer.size(); i++) {
+            result += ((float)1/(float)6);
+            SmallPacket packet = dataPhaseSmallPacketBuffer.get(i);
+            int forwardingTime = getUnicastForwardingRoute(packet.sourceIP,packet.destIP).size();
+            result += ((float) forwardingTime)/6;
+        }
+        return (int) Math.ceil(result);
+    }
+
     private void startPostRequestMasterPhase() throws InterruptedException {
         setState(State.POST_REQUEST_MASTER);
-        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want (just use messagesToSend?)
+        int how_many_timeslots_do_we_want = howManyTimeslotsDoWeWant();
         List<Integer> topologyNumbers = new ArrayList<>();
 
         timeslotsRequested = new ArrayList<>();
