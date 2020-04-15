@@ -36,6 +36,9 @@ public class MyProtocol{
     private List<SmallPacket> requestPackets = new ArrayList<>();
     private List<SmallPacket> forwardedPackets = new ArrayList<>();
     List<Integer> timeslotsRequested;
+    boolean[] neighbor_available = new boolean[4];
+    long[] neighbor_expiration_time = new long[4];
+    private Timer neighbor_expiration_timer;
 
 
     public enum State{
@@ -400,9 +403,32 @@ public class MyProtocol{
         // TODO @freek implement
     }
 
-    public void fillRoutingTable (int neighborIP) {
-        // TODO @freek implement (possibly TTL?)
+    private void checkRoutingTableExpirations() {
+        for (int i = 0; i < neighbor_expiration_time.length; i++) {
+            if (System.currentTimeMillis() > neighbor_expiration_time[i]) {
+                neighbor_expiration_time[i] = 0;
+                neighbor_available[i] = false;
+            }
+        }
     }
+
+    public void fillRoutingTable (int neighborIP) {
+        checkRoutingTableExpirations();
+        neighbor_available[neighborIP] = true;
+        int delay = 40*1000;
+        neighbor_expiration_time[neighborIP] = System.currentTimeMillis() + delay;
+
+        neighbor_expiration_timer = new Timer(delay+1, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) { // TODO welke delay
+                checkRoutingTableExpirations();
+            }
+        });
+        neighbor_expiration_timer.setRepeats(false); // Only execute once
+        neighbor_expiration_timer.start(); // Go go go!
+    }
+
+
 
     private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
