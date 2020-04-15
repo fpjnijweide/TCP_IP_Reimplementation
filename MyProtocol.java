@@ -605,6 +605,7 @@ public class MyProtocol{
         // TODO @Freek receiver side
     }
 
+
     private void startPostRequestSlavePhase(SmallPacket packet) {
         setState(State.POST_REQUEST_SLAVE);
         forwardedPackets.clear();
@@ -612,6 +613,15 @@ public class MyProtocol{
         // TODO might there be another packet coming? implement master first
         // TODO @Freek start of data phase depends on the "hop" counter in this packet.
         // TODO @Freek change state when time is right
+    }
+
+    private void startDataPhase(List<Integer> timeslotsRequested) {
+        // TODO change state
+        // TODO data things
+        // TODO receiving side
+
+        int next_master = (current_master + 1) % (highest_assigned_ip + 1);
+        // TODO if next master is us, change state properly
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
