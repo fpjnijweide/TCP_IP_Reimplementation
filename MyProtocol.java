@@ -1,5 +1,4 @@
 import client.*;
-import com.sun.deploy.net.MessageHeader;
 
 import javax.swing.Timer;
 import java.awt.event.ActionEvent;
@@ -40,7 +39,7 @@ public class MyProtocol{
     long[] neighbor_expiration_time = new long[4];
     private Timer neighbor_expiration_timer;
     private boolean[] shortTopology;
-    private boolean[][] longToplogy;
+    private boolean[][] longTopology;
 
 
     public enum State{
@@ -397,39 +396,22 @@ public class MyProtocol{
     }
 
     private int getLinkTopologyBits() {
-        // TODO calculate get short topology
+        // TODO calculate bits from short topology
         // TODO @Freek implement
         return 0;
     }
 
     public void saveTopology(int receivedTopology) {
         shortTopology = new boolean[6];
-        longToplogy = new boolean[4][4];
+        longTopology = new boolean[4][4];
         for (int i = 0; i < shortTopology.length; i++) {
             shortTopology[i] = ( ( receivedTopology & (1 << i) ) >> i ) == 1;
         }
 
-        for (int i = 0; i <= highest_assigned_ip; i++) {
-            for (int j = 0; j <= highest_assigned_ip; j++) {
-                if (i==j) {
-                    longToplogy[i][j]=true;
-                }
-                if (i==0 && j>0) {
-                    longToplogy[0][j] = shortTopology[j-1];
-                }
-                if (i>0 && j<i) {
-                    longToplogy[i][j] = longToplogy[j][i];
-                }
-                if (i==1 && j>1) {
-                    longToplogy[1][j] = shortTopology[j+1];
-                }
-                if (i==2 && j > 2) {
-                    longToplogy[2][j] = shortTopology[j+2];
-
-                }
-            }
-        }
+        updateLongTopologyFromShortTopology();
     }
+
+
 
     private void checkRoutingTableExpirations() {
         for (int i = 0; i < neighbor_expiration_time.length; i++) {
@@ -438,15 +420,17 @@ public class MyProtocol{
                 neighbor_available[i] = false;
             }
         }
+        updateTopologyFromAvailableNeighbors();
     }
 
-    public void fillRoutingTable (int neighborIP) {
+    public void updateNeighbors(int neighborIP) {
         checkRoutingTableExpirations();
+        neighbor_available[sourceIP] = false; // never list ourselves as neighbor
         neighbor_available[neighborIP] = true;
         int delay = 40*1000;
         neighbor_expiration_time[neighborIP] = System.currentTimeMillis() + delay;
 
-        neighbor_expiration_timer = new Timer(delay+1, new ActionListener() {
+        neighbor_expiration_timer = new Timer(delay+1, new ActionListener() { // TODO @Freek multiple timers..?
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 checkRoutingTableExpirations();
@@ -454,7 +438,70 @@ public class MyProtocol{
         });
         neighbor_expiration_timer.setRepeats(false); // Only execute once
         neighbor_expiration_timer.start(); // Go go go!
+        updateTopologyFromAvailableNeighbors();
     }
+
+    private void updateLongTopologyFromShortTopology() {
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            for (int j = 0; j <= highest_assigned_ip; j++) {
+                if (i==j) {
+                    longTopology[i][j]=true;
+                }
+                if (i==0 && j>0) {
+                    longTopology[0][j] = shortTopology[j-1];
+                }
+                if (i>0 && j<i) {
+                    longTopology[i][j] = longTopology[j][i];
+                }
+                if (i==1 && j>1) {
+                    longTopology[1][j] = shortTopology[j+1];
+                }
+                if (i==2 && j > 2) {
+                    longTopology[2][j] = shortTopology[j+2];
+
+                }
+            }
+        }
+    }
+
+    private void updateShortTopologyFromLongTopology() {
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            for (int j = 0; j <= highest_assigned_ip; j++) {
+                if (i==0 && j>0) {
+                    shortTopology[j-1] = longTopology[0][j];
+                }
+                if (i==1 && j>1) {
+                    shortTopology[j+1] = longTopology[1][j];
+                }
+                if (i==2 && j > 2) {
+                    shortTopology[j+2] = longTopology[2][j];
+
+                }
+            }
+        }
+    }
+
+    private void updateTopologyFromAvailableNeighbors() {
+        // Update the relevant row in matrix
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            if (i!= sourceIP) {
+                longTopology[sourceIP][i] = neighbor_available[i];
+            }
+        }
+        // Because it's symmetric: mirror the matrix, and make sure the diagonal is always true
+        for (int i = 0; i <= highest_assigned_ip; i++) {
+            for (int j = 0; j <= highest_assigned_ip; j++) {
+                if (i==j) {
+                    longTopology[i][j]=true;
+                }
+                if (i>0 && j<i) {
+                    longTopology[i][j] = longTopology[j][i];
+                }
+            }
+        }
+        updateShortTopologyFromLongTopology();
+    }
+
 
 
 
@@ -560,7 +607,7 @@ public class MyProtocol{
 
         postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
 
-        if (hops==0) fillRoutingTable(packet.sourceIP);
+        if (hops==0) updateNeighbors(packet.sourceIP);
 
 
         if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
@@ -1007,7 +1054,7 @@ public class MyProtocol{
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
                                 highest_assigned_ip = packet.destIP;
                                 int hops = packet.ackNum >> 5;
-                                if (hops==0) fillRoutingTable(packet.sourceIP);
+                                if (hops==0) updateNeighbors(packet.sourceIP);
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
@@ -1043,7 +1090,7 @@ public class MyProtocol{
                                 }
 
                                 int hops = packet.ackNum >> 5;
-                                if (hops==0) fillRoutingTable(packet.sourceIP);
+                                if (hops==0) updateNeighbors(packet.sourceIP);
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
                                     // TODO maybe we don't ever have to forward, just comment all this
