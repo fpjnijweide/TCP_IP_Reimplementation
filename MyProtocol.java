@@ -617,15 +617,27 @@ public class MyProtocol{
         setState(State.POST_REQUEST_SLAVE);
         forwardedPackets.clear();
 
-        timeslotsRequested = new ArrayList<>();
+        timeslotsRequested = new ArrayList<>(Arrays.asList(-1,-1,-1,-1));
+
+        int hops = packet.sourceIP;
 
         int received_topology = packet.ackNum & 0b0111111;
-
+        int first_person_timeslots = ((packet.ackFlag?1:0) << 3) | ((packet.SYN?1:0) << 2) | packet.destIP;
+        int second_person_first_bit = (packet.ackNum & 0b1000000) >> 3;
         saveTopology(received_topology);
-        // TODO @freek save the rest of the first packet's data: ackflag,synflag,bits3and4 are first person. first bit of ack field are first bit of second person.
+        timeslotsRequested.set(0,first_person_timeslots);
+        timeslotsRequested.set(1,second_person_first_bit);
 
-        // TODO @freek forward? but then we need hops. solution: carry 11 bits of data in each packet, and 2 bits of hops.
-
+        if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+            // You have to forward this time
+            // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
+            packet.sourceIP +=1;
+            try {
+                sendSmallPacket(packet);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     private void startDataPhase(List<Integer> timeslotsRequested) {
