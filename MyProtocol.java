@@ -824,7 +824,7 @@ public class MyProtocol{
         for (SmallPacket packet: requestPackets) {
             int timeslots = (packet.destIP << 2) | ((packet.ackFlag?1:0) << 1) | (packet.SYN?1:0);
             timeslotsRequested.add(timeslots);
-            int topologyNumber = ; // TODO get topology from packet
+            int topologyNumber = packet.ackNum & 0b111111;
             topologyNumbers.add(topologyNumber);
         }
 
