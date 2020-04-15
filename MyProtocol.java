@@ -35,6 +35,7 @@ public class MyProtocol{
     private int current_master;
     private List<SmallPacket> requestPackets = new ArrayList<>();
     private List<SmallPacket> forwardedPackets = new ArrayList<>();
+    List<Integer> timeslotsRequested;
 
 
     public enum State{
@@ -391,6 +392,10 @@ public class MyProtocol{
         return 0;
     }
 
+    public void saveTopology(int receivedTopology) {
+        // TODO @freek implement
+    }
+
     private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         all_ips.remove(ip);
@@ -571,26 +576,29 @@ public class MyProtocol{
         setState(State.POST_REQUEST_MASTER);
         int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
 
-        List<Integer> timeslotsRequested = new ArrayList<>();
+        timeslotsRequested = new ArrayList<>();
         for (SmallPacket packet: requestPackets) {
             int timeslots = (packet.destIP << 2) | ((packet.ackFlag?1:0) << 1) | (packet.SYN?1:0);
             timeslotsRequested.add(timeslots);
         }
         
         timeslotsRequested.add(sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
-        
-        int packet1_bits_1_and_2 = (timeslotsRequested.get(0) & 0b1100) >> 2;
+        int hops = 0;
+
+        boolean packet1_ackflag = ((timeslotsRequested.get(0) & 0b1000) >> 3 ) == 1;
+        boolean packet1_synflag = ((timeslotsRequested.get(0) & 0b0100) >> 2 ) == 1;
         int packet1_bits_3_and_4 = (timeslotsRequested.get(0) & 0b0011);
         int topology = 0; // TODO @Freek update topology based on all these packets + your own incomplete topology
-        SmallPacket first_packet = new SmallPacket(packet1_bits_1_and_2,packet1_bits_3_and_4,topology,false,true,false,false,true);
+        int ackField = ( (timeslotsRequested.get(1) & 0b1000 ) << 3) | topology;
+        SmallPacket first_packet = new SmallPacket(hops,packet1_bits_3_and_4,ackField,packet1_ackflag,true,false,packet1_synflag,true);
 
-        int packet2_bits_1_and_2 = (timeslotsRequested.get(1) & 0b1100) >> 2;
         int packet2_bits_3_and_4 = (timeslotsRequested.get(1) & 0b0011);
 
+        boolean packet2_ackflag = (timeslotsRequested.get(1) & 0b0100) >> 2 == 1;
         boolean packet2_synflag = (timeslotsRequested.get(2) & 0b1000) >> 3 == 1;
         int packet2_acknum = ((timeslotsRequested.get(2) & 0b0111) << 4) | timeslotsRequested.get(3);
 
-        SmallPacket second_packet = new SmallPacket(packet2_bits_1_and_2, packet2_bits_3_and_4,packet2_acknum,true,true,false,packet2_synflag,true);
+        SmallPacket second_packet = new SmallPacket(hops, packet2_bits_3_and_4,packet2_acknum,packet2_ackflag,true,false,packet2_synflag,true);
 
         List<Integer> route_ips = getMulticastForwardingRoute();
 
@@ -602,7 +610,6 @@ public class MyProtocol{
         requestPackets.clear();
 
         startDataPhase(timeslotsRequested);
-        // TODO @Freek receiver side
     }
 
 
@@ -610,9 +617,15 @@ public class MyProtocol{
         setState(State.POST_REQUEST_SLAVE);
         forwardedPackets.clear();
 
-        // TODO might there be another packet coming? implement master first
-        // TODO @Freek start of data phase depends on the "hop" counter in this packet.
-        // TODO @Freek change state when time is right
+        timeslotsRequested = new ArrayList<>();
+
+        int received_topology = packet.ackNum & 0b0111111;
+
+        saveTopology(received_topology);
+        // TODO @freek save the rest of the first packet's data: ackflag,synflag,bits3and4 are first person. first bit of ack field are first bit of second person.
+
+        // TODO @freek forward? but then we need hops. solution: carry 11 bits of data in each packet, and 2 bits of hops.
+
     }
 
     private void startDataPhase(List<Integer> timeslotsRequested) {
@@ -997,10 +1010,11 @@ public class MyProtocol{
                 }
                 break;
             case POST_REQUEST_MASTER:
-                // TODO @freek
+                // TODO @freek do we even expect any data here..?
                 break;
             case POST_REQUEST_SLAVE:
-                // TODO @freek
+                // TODO @Freek catch the second packet on the receiving side
+                // TODO @Freek change state when time is right: on the receiving side (calculate multicast hops)
 
                 break;
             case READY:
