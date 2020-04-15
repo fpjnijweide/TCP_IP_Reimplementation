@@ -654,7 +654,7 @@ public class MyProtocol{
 
         wait(delay_until_we_send*LONG_PACKET_TIMESLOT);
 
-        // TODO @freek send data
+        wait(timeslotsRequested.get(sourceIP)*LONG_PACKET_TIMESLOT); // TODO @freek send data from buffer
 
         wait(delay_after_we_send*LONG_PACKET_TIMESLOT);
         int next_master = (current_master + 1) % (highest_assigned_ip + 1);
@@ -1077,6 +1077,8 @@ public class MyProtocol{
                 break;
             case DATA_PHASE:
                 // TODO @FREEK IMPLEMENT
+                // TODO READ DATA if it's for you
+                // TODO forward data if you're on the route (header should contain hop counter. we can use our internal state to determine if we are on best path)
                 break;
             case READY:
                 switch (type) {
