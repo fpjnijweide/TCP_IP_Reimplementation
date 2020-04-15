@@ -46,7 +46,7 @@ public class MyProtocol{
     // The port to connect to. 8954 for the simulation server.
     private static int SERVER_PORT = 8954;
     // The frequency to use.
-    private static int frequency = 15400;
+    private static int frequency = 5400;
     private int exponential_backoff = 1;
     private State state = State.READY;
 
@@ -561,7 +561,7 @@ public class MyProtocol{
 
         }
 
-        return null;
+        return new ArrayList<>();
     }
 
     private int getLinkTopologyBits() {
@@ -1439,6 +1439,7 @@ public class MyProtocol{
                                     sourceIP = packet.destIP;
                                     highest_assigned_ip = packet.destIP;
                                     current_master = packet.sourceIP;
+                                    updateNeighbors(current_master);
                                 }
 
                                 int hops = packet.ackNum >> 5;
