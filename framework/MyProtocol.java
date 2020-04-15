@@ -102,6 +102,7 @@ public class MyProtocol {
     public int getDestNode (int sourceIP){
         //dialog box to input destination node
         String destinationNode = JOptionPane.showInputDialog(null,"Hello, you are node " + sourceIP + ". Enter destination node (or type ALL for multicast): ");
+
         return destinationNode.equals("ALL")? -1 : Integer.parseInt(destinationNode);
     }
 
@@ -152,6 +153,9 @@ public class MyProtocol {
     private void startDiscoveryPhase(int exponential_backoff) {
         // Resets variables, and waits to see if there is an established network nearby. After a while, tries to start a network itself
         // By sending a discovery packet. If nobody responds to this discovery packet, it is probably okay to start a network.
+        // This is basically ALOHA. The first person to successfully send a packet becomes the master node and will synchronize
+        // timeslots so that we can transition to the more efficient slotted ALOHA for IP assignment, and then, when everybody
+        // has an IP, use requests to be allotted timeslots for sending data
         setState(State.DISCOVERY);
         routing.highest_assigned_ip = -1;
         routing.sourceIP = -1;
@@ -202,6 +206,7 @@ public class MyProtocol {
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
+        // Starts timing master phase. This node has assigned an IP to itself. Send out a packet to announce that the negotiation (DHCP-like IP assignment) phase will begin
         currentMasterNodeIP = routing.sourceIP;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
@@ -209,7 +214,7 @@ public class MyProtocol {
         }
         exponentialBackoffFactor = 1;
         if (new_negotiation_phase_length == 0 && this.negotiationPhaseMasterLength > 1) { // If we are using an old phase length number that is above 1
-            this.negotiationPhaseMasterLength /= 2;
+            this.negotiationPhaseMasterLength /= 2; // Negotiation phase should be large in the beginning but smaller and smaller on later
         }
 
         SmallPacket packet = new SmallPacket(routing.sourceIP, 0, this.negotiationPhaseMasterLength, false, false, false, true, true);
@@ -218,6 +223,9 @@ public class MyProtocol {
     }
 
     private void startTimingSlavePhase(int new_negotiation_phase_length, int new_master_ip) {
+        // We received a packet that shows someone else is in the timing master phase. We already have an IP. Just wait for the negotiation phase to be over.
+        // Once we receive a packet that shows the request phase will begin soon, transition to POST_NEGOTIATION_SLAVE
+
         if (new_negotiation_phase_length == 0 && this.negotiationPhaseMasterLength > 1) { // If we are using an old phase length number that is above 1
             this.negotiationPhaseMasterLength /= 2;
         }
@@ -239,6 +247,8 @@ public class MyProtocol {
     }
 
     private void startTimingStrangerPhase(int negotiation_length) {
+        // We received a packet that shows someone else is in the timing master phase. We don't have an IP yet.
+        // The negotiation phase will start soon, our chance to get an IP.
         setState(State.TIMING_STRANGER);
         exponentialBackoffFactor = 1;
         this.negotiationPhaseStrangerLength = negotiation_length;
@@ -251,6 +261,7 @@ public class MyProtocol {
     }
 
     private void startWaitingForTimingStrangerPhase() {
+        // If we failed at negotiating for an IP, wait for the next timing phase.
         setState(State.WAITING_FOR_TIMING_STRANGER);
         exponentialBackoffFactor = 1;
         timer = new Timer(20000, new ActionListener() {
@@ -268,6 +279,8 @@ public class MyProtocol {
     }
 
     private void startNegotiationMasterPhase() {
+        // We, the master node, have just sent out the timing phase packet and are now entering the negotiation phase
+        // All we do here is queue incoming negotiation packets to use them later, during the post_negotiation master phase
         setState(State.NEGOTIATION_MASTER);
         receivedNegotiationPackets.clear();
         Timer timer = new Timer(this.negotiationPhaseMasterLength * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
@@ -286,7 +299,14 @@ public class MyProtocol {
     }
 
     private void startNegotiationStrangerPhase() throws InterruptedException {
-        tiebreaker = new Random().nextInt(1 << 5);
+        // We do not have an IP, but a node next to us has opened the negotiation phase.
+        // We basically use slotted ALOHA to try and send a packet here.
+        // If we succeed in sending a packet, hopefully there was no interference and nobody used the same identifier as we did
+        //
+
+        tiebreaker = new Random().nextInt(1 << 5); // This is our "unique" 5-bit identifier (because we don't have a MAC address)
+                                                      // if we are assigned an IP address, the master node will relay this identifier back to us
+                                                      // if someone else used the same identifier, we don't get an IP (conflict / tie)
         setState(State.NEGOTIATION_STRANGER);
         this.negotiationPhasesEncountered++;
         for (int i = 0; i < this.negotiationPhaseStrangerLength; i++) {
@@ -297,17 +317,18 @@ public class MyProtocol {
             if (roll > 0.25) {
                 SmallPacket packet = new SmallPacket(0, 0, tiebreaker, false, false, true, false, true);
                 packetHandling.sendSmallPacket(packet);
-                startNegotiationStrangerDonePhase();
+                startNegotiationStrangerDonePhase(); // Stop trying to send packets in these timeslots, we succeeded. Wait to see if we get an IP.
                 return;
             } else {
                 sleep(packetHandling.SHORT_PACKET_TIMESLOT);
             }
         }
-        startWaitingForTimingStrangerPhase();
+        startWaitingForTimingStrangerPhase(); // We did not succeed in sending a packet. Wait for next timing phase.
 
     }
 
     private void startNegotiationStrangerDonePhase() {
+        // Negotiation phase is over and we might be getting an IP soon. Wait for the post-negotiation announcement packet.
         setState(State.NEGOTIATION_STRANGER_DONE);
         timer = new Timer(30000, new ActionListener() {
             @Override
@@ -322,17 +343,18 @@ public class MyProtocol {
     }
 
     private void startPostNegotiationMasterPhase() throws InterruptedException {
+        // Negotiation phase is over. Assign IPs to nodes, specify which nodes must participate in multicast forwarding, and specify the length of the request phase.
         setState(State.POST_NEGOTIATION_MASTER);
 
         List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
-        int route = routing.getMulticastForwardingRouteNumber(routing.sourceIP, route_ips);
+        int route = routing.getMulticastForwardingRouteNumber(routing.sourceIP, route_ips); // This packet specifies which nodes will participate in forwarding multicast packets, in what order
 
-        int hops = 0;
+        int hops = 0; // Needed for proper forwarding
         int first_packet_ack_nr = hops << 6 | route;
         SmallPacket first_packet = new SmallPacket(routing.sourceIP, routing.sourceIP, first_packet_ack_nr, true, false, true, false, true);
         packetHandling.sendSmallPacket(first_packet);
 
-        sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT); // Wait for rebroadcast to finish.
         List<Integer> received_tiebreakers = new ArrayList<>();
 
         // Make list of all tiebreakers
@@ -353,6 +375,7 @@ public class MyProtocol {
         receivedNegotiationPackets.removeAll(toRemove);
 
         for (SmallPacket negotiation_packet : receivedNegotiationPackets) {
+            // Promote all the strangers that sent negotiation packets to slaves by giving them an IP. Multicast this information.
             int new_ip = routing.highest_assigned_ip + 1;
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
 
@@ -364,24 +387,28 @@ public class MyProtocol {
         }
         receivedNegotiationPackets.clear();
 
-        int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
+        int unicast_scheme = routing.getUnicastScheme(routing.sourceIP); // Specifies (for each node) which IPs participate in unicast forwarding to the master node. Encoded as a 7-bit number.
+        // In the final packet, we announce the length of the request phase (indirectly by specifying the unicast route from each person)
+        // It is assumed that each node will send a request packet, even when they do not have any data packets to send.
         SmallPacket final_packet = new SmallPacket(routing.sourceIP, hops, unicast_scheme, true, false, true, true, true);
         packetHandling.sendSmallPacket(final_packet);
 
     }
 
     private void startPostNegotiationSlavePhase(SmallPacket packet) throws InterruptedException {
+        // We just received a packet announcing the end of the negotiation phase. Get ready for more packets.
         setState(State.POST_NEGOTIATION_SLAVE);
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
 
+        // This packet specifies the multicast forwarding scheme of the master node.
         routing.postNegotiationSlaveforwardingScheme = routing.getMulticastForwardingRouteFromOrder(packet.sourceIP, multicastSchemeNumber);
 
-        if (hops == 0) routing.updateNeighbors(packet.sourceIP);
+        if (hops == 0) routing.updateNeighbors(packet.sourceIP); // If this packet went through 0 hops, add its source IP to your neighbors
 
 
         if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
-            // You have to forward this time
+            // We have to forward the packet in this timeslot
             packet.ackNum += (1 << 5);
             packetHandling.sendSmallPacket(packet);
         }
@@ -389,14 +416,15 @@ public class MyProtocol {
     }
 
     private void startPostNegotiationStrangerPhase(SmallPacket packet) {
+        // The negotiation phase has ended. Wait for more packets (receiving side happens in the processMessage method)
         setState(State.POST_NEGOTIATION_STRANGER);
-        // maybe do things here..? but we don't have to forward anything
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
         routing.postNegotiationSlaveforwardingScheme = routing.getMulticastForwardingRouteFromOrder(packet.sourceIP, multicastSchemeNumber);
     }
 
     public void startRequestMasterPhase() {
+        // Request phase. All we do now is receive and queue request packets, which state how many data packets a node wants to s send.
         setState(State.REQUEST_MASTER);
         receivedRequestPackets.clear();
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
@@ -411,25 +439,40 @@ public class MyProtocol {
 
         }
 
+        // Go to post request phase after a while
+        Timer timer = new Timer(request_phase_length * packetHandling.SHORT_PACKET_TIMESLOT + 500, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    startPostRequestMasterPhase();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
 
     }
 
     public void startRequestSlavePhase() {
+        // Request phase. We must send a packet containing the amount of timeslots we want for sending
         setState(State.REQUEST_SLAVE);
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(currentMasterNodeIP);
-        int thisNodesSendTurn = all_ips.get(routing.sourceIP);
+        int thisNodesSendTurn = all_ips.get(routing.sourceIP); // Of the (max 3) nodes that should send request packets, when is our turn?
         int thisNodesSendTimeslot = thisNodesSendTurn;
 
         for (int i = 0; i < thisNodesSendTurn; i++) {
-            thisNodesSendTimeslot += routing.unicastRoutes.get(i).size();
+            thisNodesSendTimeslot += routing.unicastRoutes.get(i).size(); // Add the amount of forwarding timeslots needed to figure out which exact timeslot we should send in
         }
 
+        // Wait that amount of timeslots
         Timer timer = new Timer(thisNodesSendTimeslot * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
-                    requestSlavePhaseSecondPart();
+                    requestSlavePhaseSecondPart(); // Send our request packet using this method
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -442,6 +485,7 @@ public class MyProtocol {
     }
 
     public void requestSlavePhaseSecondPart() throws InterruptedException {
+        // Sends request packet
         int how_many_timeslots_do_we_want = howManyTimeslotsDoWeWant();
         int bit_1_and_2 = (how_many_timeslots_do_we_want & 0b1100) >> 2;
         boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
@@ -467,6 +511,9 @@ public class MyProtocol {
     }
 
     private int howManyTimeslotsDoWeWant() {
+        // For each large packet, we want 1 + <amount of nodes in path to destination> timeslot
+        // For each small packet, we want 1/6th of that.
+        // Cap at 15.
         float result = 0;
         for (BigPacket bigPacket : dataPhaseBigPacketBuffer) {
             result += 1;
@@ -493,26 +540,35 @@ public class MyProtocol {
     }
 
     private void startPostRequestMasterPhase() throws InterruptedException {
+        // Collect all the request packets (which contain the network topology as well)
+        // Assemble 2 packets which contain the requested amount of timeslots for each node,
+        // and a merged topology that everyone can use
         setState(State.POST_REQUEST_MASTER);
         int how_many_timeslots_do_we_want = howManyTimeslotsDoWeWant();
         List<Integer> topologyNumbers = new ArrayList<>();
 
         timeslotsRequested = new ArrayList<>();
         for (SmallPacket packet : receivedRequestPackets) {
-            int timeslots = (packet.destIP << 2) | ((packet.ackFlag ? 1 : 0) << 1) | (packet.SYN ? 1 : 0);
-            timeslotsRequested.add(timeslots);
-            int topologyNumber = packet.ackNum & 0b111111;
-            topologyNumbers.add(topologyNumber);
+            int timeslots = (packet.destIP << 2) | ((packet.ackFlag ? 1 : 0) << 1) | (packet.SYN ? 1 : 0); // Get timeslot info from packet
+            timeslotsRequested.add(timeslots); // Add to array
+            int topologyNumber = packet.ackNum & 0b111111; // get topology info from packet
+            topologyNumbers.add(topologyNumber); // add to array
         }
 
-        topologyNumbers.add(routing.sourceIP, routing.getLinkTopologyBits());
+        topologyNumbers.add(routing.sourceIP, routing.getLinkTopologyBits()); // add our own topology to this list of received topologies
 
         timeslotsRequested.add(routing.sourceIP, how_many_timeslots_do_we_want); // Adding our own request for timeslots
+
+        // Pad these arrays with zeroes to avoid problems
         while (timeslotsRequested.size() < 4) {
-            timeslotsRequested.add(0);
+            timeslotsRequested.add(0); //
+        }
+        while (topologyNumbers.size() < 4) {
+            topologyNumbers.add(0); //
         }
         int hops = 0;
 
+        // Synthesize the two packets that we will send. Both of them together contain the information on the data phase length, and the topology.
         boolean packet1_ackflag = ((timeslotsRequested.get(0) & 0b1000) >> 3) == 1;
         boolean packet1_synflag = ((timeslotsRequested.get(0) & 0b0100) >> 2) == 1;
         int packet1_bits_3_and_4 = (timeslotsRequested.get(0) & 0b0011);
@@ -528,36 +584,37 @@ public class MyProtocol {
 
         SmallPacket second_packet = new SmallPacket(hops, packet2_bits_3_and_4, packet2_acknum, packet2_ackflag, true, false, packet2_synflag, true);
 
-        List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
+        List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP); // Get the multicast path for this
 
-        packetHandling.sendSmallPacket(first_packet);
+        packetHandling.sendSmallPacket(first_packet); // send packet and wait for rebroadcast
         sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
-        packetHandling.sendSmallPacket(second_packet);
+        packetHandling.sendSmallPacket(second_packet); // send packet and wait for rebroadcast
         sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
 
         receivedRequestPackets.clear();
 
-        startDataPhase();
+        startDataPhase(); // Go to data phase. We are now no longer the master node, we are just a normal node sending data in our assigned timeslot.
     }
 
     private void startPostRequestSlavePhase(SmallPacket packet) {
+        // Request phase has ended. Use the information from the two packets that come in to determine the length and specifics of the data phase
+        // Such as: when are we allowed to send? Also, get the network topology from these packets
         setState(State.POST_REQUEST_SLAVE);
         forwardedPackets.clear();
 
         timeslotsRequested = new ArrayList<>(Arrays.asList(-1, -1, -1, -1));
 
-        int hops = packet.sourceIP;
+        int hops = packet.sourceIP; // hops is stored in source IP due to lack of space.
 
         int received_topology = packet.ackNum & 0b0111111;
         int first_person_timeslots = ((packet.ackFlag ? 1 : 0) << 3) | ((packet.SYN ? 1 : 0) << 2) | packet.destIP;
         int second_person_first_bit = (packet.ackNum & 0b1000000) >> 3;
-        routing.saveTopology(received_topology);
+        routing.saveTopology(received_topology); // Save the topology that we received
         timeslotsRequested.set(0, first_person_timeslots);
         timeslotsRequested.set(1, second_person_first_bit);
 
         if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
             // You have to forward this time
-            // Source IP is not included here. No proper forwarding possible.
             packet.sourceIP += 1;
             try {
                 packetHandling.sendSmallPacket(packet);
@@ -569,6 +626,7 @@ public class MyProtocol {
     }
 
     private void startDataPhase() {
+        // Calculate when we are allowed to send exactly
         setState(State.DATA_PHASE);
         forwardedPackets.clear();
         int delay_until_we_send = 0;
@@ -581,12 +639,13 @@ public class MyProtocol {
             delay_after_we_send += timeslotsRequested.get(i);
         }
 
+        // Wait this amount of time
         final int finalDelay_after_we_send = delay_after_we_send;
         Timer timer = new Timer((delay_until_we_send * packetHandling.LONG_PACKET_TIMESLOT), new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
-                    dataPhaseSecondPart(finalDelay_after_we_send);
+                    dataPhaseSecondPart(finalDelay_after_we_send); // This is the method where we actually send things
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -598,7 +657,7 @@ public class MyProtocol {
     }
 
     private void dataPhaseSecondPart(int delay_after_we_send) throws InterruptedException {
-
+        // Send out our packets!
         for (SmallPacket packet : dataPhaseSmallPacketBuffer) {
             packetHandling.sendSmallPacket(packet);
             int forwardingTime;
@@ -623,6 +682,7 @@ public class MyProtocol {
         }
         dataPhaseBigPacketBuffer.clear();
 
+        // Now wait for the data phase to end
         Timer timer = new Timer(delay_after_we_send * packetHandling.LONG_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
@@ -639,6 +699,7 @@ public class MyProtocol {
     }
 
     public void dataPhaseThirdPart() throws InterruptedException {
+        // Determine if we are a master or slave in the next timing phase.
         int next_master = (currentMasterNodeIP + 1) % (routing.highest_assigned_ip + 1);
         if (next_master == routing.sourceIP) {
             startTimingMasterPhase(0);
@@ -648,11 +709,12 @@ public class MyProtocol {
     }
 
     private void processMessage(ByteBuffer data, MessageType type) {
+        // Process input.
         byte[] bytes = new byte[0];
         if (data != null) {
             bytes = data.array();
         }
-        switch (type) {
+        switch (type) { // First, regardless of our current state, print the type of the packet we just received.
             case FREE:
                 long delay = System.currentTimeMillis() - interferenceDetectionTimer;
                 System.out.println("FREE. Delay since previous: " + delay);
@@ -692,41 +754,46 @@ public class MyProtocol {
                     if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                         timer.stop();
                         exponentialBackoffFactor *= 2;
-                        startDiscoveryPhase(exponentialBackoffFactor);
+                        startDiscoveryPhase(exponentialBackoffFactor); // there is someone else trying to start a network as well. wait longer.
                     } else if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) { // timing master packet
                         timer.stop();
-                        startTimingStrangerPhase(packet.ackNum);
+                        startTimingStrangerPhase(packet.ackNum); // someone has started a network. try to join them
                     }
                 }
                 break;
             case SENT_DISCOVERY:
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
+
                     boolean other_discovery_packet = packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag;
                     boolean discovery_denied_packet = packet.broadcast && packet.negotiate && packet.request && packet.ackFlag;
 
                     if ((other_discovery_packet && (tiebreaker <= packet.ackNum)) || (discovery_denied_packet && packet.ackNum == tiebreaker)) {
+                        // if we got another discovery packet from someone else and they win the tiebreaker, go back to discovery phase
                         timer.stop();
                         exponentialBackoffFactor *= 2;
                         startDiscoveryPhase(exponentialBackoffFactor);
                     }
 
                     if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
+                        // If someone else started a network, try to join them in the timing phase.
                         timer.stop();
                         startTimingStrangerPhase(packet.ackNum);
                     }
                 }
                 break;
             case TIMING_MASTER:
-                // is eigenlijk zo kort dat er niks kan gebeuren
+                // we are not planning to receive anything during this phase
                 break;
             case TIMING_STRANGER:
-                // is zo kort dat er niks kan gebeuren
+                // we are not planning to receive anything during this phase
                 break;
             case TIMING_SLAVE:
+                // The data phase just ended. We are a slave node with an IP. We are going to wait for the negotiation phase to end, after which we can request timeslots again.
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                        // If we get a psot-negotiation packet, go to that phase.
                         if (!packet.SYN && packet.sourceIP == packet.destIP) {
                             timer.stop();
                             try {
@@ -739,15 +806,18 @@ public class MyProtocol {
                 }
                 break;
             case NEGOTIATION_MASTER:
+                // We are expecting neighbor nodes without IPs to send negotiation packets via slotted ALOHA
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && !packet.ackFlag && !packet.request) {
+                        // If we get a negotiation packet, store it for later use
                         receivedNegotiationPackets.add(packet);
                     }
                 }
 
                 break;
             case NEGOTIATION_STRANGER:
+                // we are not planning to receive anything during this phase
 //                switch (type) {
 //                    case DATA_SHORT:
 //                        System.out.println("DATA_SHORT");
@@ -759,15 +829,18 @@ public class MyProtocol {
                 break;
 
             case WAITING_FOR_TIMING_STRANGER:
+                // We failed to get an IP during negotiation. Wait for next timing phase.
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
+                        // We got a timing phase packet.
                         timer.stop();
                         startTimingStrangerPhase(packet.ackNum);
                     }
                 }
                 break;
             case NEGOTIATION_STRANGER_DONE:
+                // we might be getting an IP as we successfully sent a negotiation packet. Wait for post-negotiation packets to come in.
                 if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
@@ -779,6 +852,10 @@ public class MyProtocol {
                 }
                 break;
             case POST_NEGOTIATION_MASTER:
+                // negotiation just ended. because we send many packets during this phase, we are going to wait for the
+                // channel to become free, and only then do we start the request phase
+                // while this makes the desynchronization of timeslots less extreme, it doesn't solve the problem.
+                // most interference happens here because the 3 packets sent during post negotiation are queued too long
                 if (type == MessageType.FREE) {
                     Timer timer = new Timer(routing.getMulticastForwardingRoute(routing.sourceIP).size() * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
@@ -791,15 +868,17 @@ public class MyProtocol {
                 }
                 break;
             case POST_NEGOTIATION_SLAVE:
-                if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
+                // waiting for the packets that show which nodes have been promoted and given an IP
+                if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
+                        // we got a post-negotiation packet
                         if (!packet.SYN && packet.sourceIP != packet.destIP) {
+                            // this packet shows a node has been given an ip
                             routing.highest_assigned_ip = packet.destIP;
                             int hops = packet.ackNum >> 5;
                             if (hops == 0) routing.updateNeighbors(packet.sourceIP);
                             if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
-                                // TODO maybe use forwardedpackets
                                 // You have to forward this time
                                 packet.ackNum += (1 << 5);
                                 try {
@@ -816,7 +895,8 @@ public class MyProtocol {
                 }
                 break;
             case POST_NEGOTIATION_STRANGER:
-                if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER
+                // Same as post negotiation slave, but we assign ourselves an IP if we get it, and go back to WAITING_FOR_TIMING if we don't
+                if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && packet.ackFlag && !packet.request) {
                         if (!packet.SYN && packet.sourceIP != packet.destIP) {
@@ -824,6 +904,7 @@ public class MyProtocol {
                                 routing.highest_assigned_ip = packet.destIP;
                             }
                             if ((packet.ackNum & 0b0011111) == tiebreaker) {
+                                // we have been given an IP!!
                                 routing.sourceIP = packet.destIP;
                                 routing.highest_assigned_ip = packet.destIP;
                                 currentMasterNodeIP = packet.sourceIP;
@@ -833,10 +914,11 @@ public class MyProtocol {
                             int hops = packet.ackNum >> 5;
                             if (hops == 0) routing.updateNeighbors(packet.sourceIP);
                         } else if (packet.SYN) {
+                            // Final post-negotiation packet has come in, handle it.
                             if (routing.sourceIP != -1) {
                                 finalPostNegotiationHandler(packet);
                             } else {
-                                // Finished POST_NEGOTIATION_STRANGER without an IP. This means we lost the tiebreaker.
+                                // Finished POST_NEGOTIATION_STRANGER without an IP. This means we lost the tiebreaker. Go back to waiting.
                                 timer.stop();
                                 startWaitingForTimingStrangerPhase();
                             }
@@ -845,6 +927,7 @@ public class MyProtocol {
                 }
                 break;
             case REQUEST_MASTER:
+                // Wait for request packets and store them
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.broadcast && !packet.negotiate && packet.request) {
@@ -853,6 +936,7 @@ public class MyProtocol {
                 }
                 break;
             case REQUEST_SLAVE:
+                // Forward other request packets if we have to.
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
@@ -869,6 +953,7 @@ public class MyProtocol {
                             }
                         }
                     }
+                    // If we see a post-request phase packet, that means this phase has ended
                     if (!packet.negotiate && packet.request && packet.broadcast) {
                         timer.stop();
                         startPostRequestSlavePhase(packet);
@@ -876,9 +961,11 @@ public class MyProtocol {
                 }
                 break;
             case POST_REQUEST_MASTER:
-                // do we even expect any data here..?
+                // no incoming packets expected here
                 break;
             case POST_REQUEST_SLAVE:
+                // we are expecting a second packet from the master, this phase
+                // the data from the first packet has already been stored during the startPostRequestSlavePhase method
                 if (type == MessageType.DATA_SHORT) {
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.negotiate && packet.request && packet.broadcast) {
@@ -889,13 +976,15 @@ public class MyProtocol {
                         timeslotsRequested.set(2, third_person_requested_timeslot);
                         timeslotsRequested.set(3, fourth_person_requested_timeslot);
 
+                        // We now have information on the network topology and the assignment of timeslots in data phase
+
                         int hops = packet.sourceIP;
                         try {
                             if (routing.postNegotiationSlaveforwardingScheme.size() - 1 >= hops && routing.postNegotiationSlaveforwardingScheme.get(hops) == routing.sourceIP) {
-
                                 // You have to forward this time
                                 packet.sourceIP += 1;
                                 packetHandling.sendSmallPacket(packet);
+                                // Wait the right amount of time until this phase ends (1 less than if we did not forward a packet)
                                 Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size() - hops - 1) * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                                     @Override
                                     public void actionPerformed(ActionEvent arg0) {
@@ -906,6 +995,7 @@ public class MyProtocol {
                                 timer.start(); // Go go g
 
                             } else {
+                                // Wait the right amount of time until this phase ends (1 longer than if we had forwarded a packet)
                                 Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size() - hops) * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                                     @Override
                                     public void actionPerformed(ActionEvent arg0) {
@@ -924,6 +1014,9 @@ public class MyProtocol {
 
                 break;
             case DATA_PHASE:
+                // data phase.
+                // Forward packets if we are in their unicast or multicast path (the latter is only applicable for broadcast packets)
+                // If they are addressed to us, display them.
                 switch (type) {
                     case DATA_SHORT:
                         SmallPacket smallPacket = packetHandling.readSmallPacket(bytes);
@@ -934,7 +1027,7 @@ public class MyProtocol {
                         if (smallPacket.destIP == routing.sourceIP) {
                             handleSmallPacket(smallPacket);
                         } else if (!smallPacket.broadcast && routing.getUnicastForwardingRoute(smallPacket.sourceIP, smallPacket.destIP).contains(routing.sourceIP)) {
-                            // we are on the route
+                            // we are on the route. forward this packet if we have to
                             if (!forwardedPackets.contains(smallPacket)) {
                                 forwardedPackets.add(smallPacket);
                                 try {
@@ -944,16 +1037,6 @@ public class MyProtocol {
                                 }
                             }
                         }
-//                        else if (smallPacket.broadcast && routing.getMulticastForwardingRoute(smallPacket.sourceIP).contains(sourceIP)) { // TODO dit kan niet
-//                            if (!forwardedPackets.contains(smallPacket)){
-//                                forwardedPackets.add(smallPacket);
-//                                try {
-//                                    packetHandling.sendSmallPacket(smallPacket);
-//                                } catch (InterruptedException e) {
-//                                    e.printStackTrace();
-//                                }
-//                            }
-//                        }
                         break;
                     case DATA:
                         BigPacket bigPacket = packetHandling.readBigPacket(bytes);
@@ -963,8 +1046,10 @@ public class MyProtocol {
                         if (!bigPacket.broadcast && routing.getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).contains(routing.sourceIP)) {
                             // we are on the route
                             if (bigPacket.hops == routing.getUnicastForwardingRoute(bigPacket.sourceIP, bigPacket.destIP).indexOf(routing.sourceIP)) {
+                                // If this is a unicast pacet, we are on the route, and the amount of hops so far seems logical, forward it
                                 forwardedPackets.add(bigPacket);
                                 try {
+                                    // forward packet with hops incremented (we might need the original nr later on though so we decrement afterward)
                                     bigPacket.hops += 1;
                                     packetHandling.sendPacket(bigPacket);
                                     bigPacket.hops -= 1;
@@ -973,7 +1058,9 @@ public class MyProtocol {
                                 }
                             }
                         } else if (bigPacket.broadcast && routing.getMulticastForwardingRoute(bigPacket.sourceIP).contains(routing.sourceIP)) {
+                            // This is a multicast packet. If we are on the route
                             if (bigPacket.hops == routing.getMulticastForwardingRoute(bigPacket.sourceIP).indexOf(routing.sourceIP)) {
+                                // And if the amount of hops so far seems logical: forward it
                                 forwardedPackets.add(bigPacket);
                                 try {
                                     bigPacket.hops += 1;
@@ -992,9 +1079,8 @@ public class MyProtocol {
                 }
 
                 break;
-            case READY:
+            case READY: // Normal, non access-control phase. Uses TCP-like protocol for delivering and receiving.
                 switch (type) {
-                    // TODO @Freek gebruik dit op de goede plek
                     case DATA:
                         BigPacket packet = packetHandling.readBigPacket(bytes);
                         try {
@@ -1014,13 +1100,17 @@ public class MyProtocol {
     }
 
     private void handleBigPacket(BigPacket bigPacket) {
+        // Shows messages addressed to us in a fancy way to set it apart from debug info
+        System.out.println("-------------------------");
         System.out.println("New message from " +bigPacket.sourceIP+ ": ");
         for (byte aByte:bigPacket.payloadWithoutPadding) {
             System.out.print((char) aByte);
         }
+        System.out.println("-------------------------");
     }
 
     private void handleSmallPacket(SmallPacket smallPacket) {
+        // Small packets don't contain any messages to show the user. Might still be useful to implement something here later.
     }
 
     private void finalPostNegotiationHandler(SmallPacket packet) {
@@ -1028,9 +1118,11 @@ public class MyProtocol {
         if (packet.SYN) {
             List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
             all_ips.remove(packet.sourceIP);
-            currentMasterNodeIP = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
-            // 124 DEC is 444 PENT
+            currentMasterNodeIP = packet.sourceIP;
+
+            // Converts the route number representation from base 10 to base 5, splitting it into three numbers
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5, (packet.ackNum / 5) % 5, packet.ackNum % 5};
+
 
             routing.unicastRoutes = new ArrayList<>();
             for (int i = 0; i < route_numbers.length; i++) {
@@ -1040,10 +1132,13 @@ public class MyProtocol {
 
                 ip_list.remove(i); // this will remove by index, not element
                 int order = route_numbers[i];
+
+                // Using some permutation magic this number can be translated into a lsit of IPs used for forwarding from this node to the master node
                 List<Integer> unicastRoute = Mathematics.decodePermutationOfTwo(order, ip_list);
+
                 routing.unicastRoutes.add(unicastRoute);
             }
-            routing.unicastRouteToMaster = routing.unicastRoutes.get(all_ips.indexOf(routing.sourceIP));
+            routing.unicastRouteToMaster = routing.unicastRoutes.get(all_ips.indexOf(routing.sourceIP)); // Get our forwarding path to master node
 
             int hops = packet.destIP;
             try {
@@ -1051,6 +1146,7 @@ public class MyProtocol {
                     // You have to forward this time
                     packet.destIP += 1;
                     packetHandling.sendSmallPacket(packet);
+                    // Wait until the end of this phase (1 timeslot less because you already forwarded a packet, taking up a timeslot)
                     Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size() - hops - 1) * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
@@ -1061,6 +1157,7 @@ public class MyProtocol {
                     timer.start(); // Go go g
 
                 } else {
+                    // Wait until the end of this phase
                     Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size() - hops) * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
@@ -1079,6 +1176,8 @@ public class MyProtocol {
     }
 
     void detectInterference(long delay) {
+        // Check if the expected delay from the packets we wanted to send is less than the actual delay (with some fault tolerance in the number already)
+        // If there is a difference , there was interference because another node started transmitting, but not at exactly the same time.
         boolean interference = false;
         if (packetHandling.sending) {
             packetHandling.sending = false;
@@ -1124,14 +1223,17 @@ public class MyProtocol {
                     }
                 } else {
                     System.out.println("Keeping DATA packet in buffer");
+                    // TODO resend? TCP will do this for us
                 }
 
             } else {
-                if (state == State.NEGOTIATION_STRANGER) { // TODO possibly incorrect if
+                if (state == State.NEGOTIATION_STRANGER) {
+                    // If we had no interference when sending our negotiation packet, go to the next phase.
                     timer.stop();
                     startNegotiationStrangerDonePhase();
                 }
 
+                // Store the successfully sent packet in our history. Might be useful.
                 if (packetHandling.messageHistory.size() >= 1000) {
                     packetHandling.messageHistory.remove(0);
                 }
