@@ -43,7 +43,7 @@ public class PacketHandling {
     }
 
     public byte[] appendToBuffer(BigPacket packet) {
-        // todo ewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
+        // todo rewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
         for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
             splitPacketBuffer.add(packet.payloadWithoutPadding[i]);
         }

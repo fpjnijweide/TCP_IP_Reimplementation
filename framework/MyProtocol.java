@@ -49,6 +49,8 @@ public class MyProtocol {
     private int currentMasterNodeIP;
     private int exponentialBackoffFactor = 1;
     private State state = State.READY;
+    ReliableDelivery reliableDelivery;
+
 
     public MyProtocol(int inputSourceIP) {
         routing = new Routing();
@@ -56,6 +58,8 @@ public class MyProtocol {
         BlockingQueue<Message> receivedQueue = new LinkedBlockingQueue<>();
         BlockingQueue<Message> sendingQueue = new LinkedBlockingQueue<>();
         packetHandling = new PacketHandling(sendingQueue);
+        reliableDelivery = new ReliableDelivery(packetHandling);
+
 
         new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
@@ -116,27 +120,7 @@ public class MyProtocol {
                         packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
                         break;
                     default:
-                        for (int i = 0; i < read - 1; i += 28) {
-                            byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
-                            System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
-//                        for (int j = 0; j < partial_text.length; j++) {
-//                            partial_text[j] = text.array()[j+i];
-//                        }
-                            // TODO @Martijn implement sliding window here, sending side
-
-                            // TODO proper sequence number
-                            // TODO last ack received als field bijhouden
-                            // TODO last seq nr sent als field bjihouden
-                            // TODO SWS bijhouden als field
-                            // todo LAR+SWS (biggest sendable packet) bijhouden als field
-                            // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
-
-
-                            boolean morePacketsFlag = read - 1 - i > 28;
-                            int size = morePacketsFlag ? 32 : read - 1 - i + 4;
-                            packetHandling.sendPacket(new BigPacket(routing.sourceIP, destIP, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
-
-                        }
+                        reliableDelivery.TCPsend(read, text,routing,packetHandling);
                         break;
 
                 }
@@ -153,6 +137,8 @@ public class MyProtocol {
 
 
     }
+
+
 
     private void startDiscoveryPhase(int exponential_backoff) {
         setState(State.DISCOVERY);
@@ -996,26 +982,18 @@ public class MyProtocol {
                 break;
             case READY:
                 switch (type) {
-
+                    // TODO @Freek gebruik dit op de goede plek
                     case DATA:
                         BigPacket packet = packetHandling.readBigPacket(bytes);
-
-                        if (packet.morePackFlag || packetHandling.splitPacketBuffer.size() > 0) {
-                            byte[] result = packetHandling.appendToBuffer(packet);
-                            if (result.length > 0) {
-                                packetHandling.printByteBuffer(result, true);
-                            }
+                        try {
+                            reliableDelivery.TCPreceive(packet);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
                         }
-
-                        // TODO @Martijn sliding window protocol receiving side
-
-                        // TODO stuur ACKs
-                        // TODO last (cumulative) ack sent bijhouden als field
-                        // TODO last packet received bijhouden als field
-                        // TODO LAS + RWS = einde van je window, bijhouden als field
-                        // TODO lijst aan booleans met welke packets je al binnen hebt binnen je window
-
-
+                        break;
+                    case DATA_SHORT:
+                        SmallPacket smallPacket = packetHandling.readSmallPacket(bytes);
+                        reliableDelivery.TCPreceiveSmall(smallPacket);
                         break;
 
                 }
