@@ -119,7 +119,7 @@ public class PacketHandling {
     public void printByteBuffer(byte[] bytes, boolean buffered) {
         if (bytes!=null) {
             if (buffered) {
-                System.out.print("\nBUFFERED: ");
+                System.out.print("\nBUFFERED, COMPLETE MESSAGE: ");
                 for (byte aByte: bytes) {
                     System.out.print((char) aByte);
                 }
