@@ -1,5 +1,8 @@
 package framework;
 
+import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,9 +16,7 @@ public class ReliableDelivery {
     int last_ack_received = 0;
     int biggest_sendable_packet = 15;
     List<BigPacket> queueingPackets = new ArrayList<>();
-    static final int TIMEOUT = 2000;
-    long timeOuttimer;
-    BigPacket packet_waiting_to_send;
+    static final int TIMEOUT = 10000;
     boolean did_send_packet = false;
     static final int k = 15;
     List<Boolean> acknowledged = new ArrayList<>(Collections.nCopies(k, false));
@@ -69,7 +70,7 @@ public class ReliableDelivery {
 
     }
 
-    public void TCPsend(int read, ByteBuffer text, Routing routing, PacketHandling packetHandling) throws InterruptedException {
+    public void TCPsend(int read, ByteBuffer text, Routing routing, PacketHandling packetHandling, int destIP, boolean broadcast) throws InterruptedException {
         for (int i = 0; i < read - 1; i += 28) {
             byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
             System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
@@ -81,7 +82,7 @@ public class ReliableDelivery {
 
 //                            received.set(packet_number,false);
 
-            packet_waiting_to_send = new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, packet_number, morePacketsFlag, size,0);
+            BigPacket packet_waiting_to_send = new BigPacket(routing.sourceIP, destIP, 0, false, false, false, false, broadcast, partial_text, packet_number, morePacketsFlag, size,0);
             did_send_packet = true;
             if(packet_number < last_ack_received || packet_number > biggest_sendable_packet){
                 System.out.println("packet not in sending window, send later");
@@ -89,7 +90,7 @@ public class ReliableDelivery {
             }
             else {
                 packetHandling.sendPacket(packet_waiting_to_send);
-                timeOuttimer = System.currentTimeMillis();
+                makeTimeout(packet_waiting_to_send);
                 last_seqNum_sent = packet_number;
                 acknowledged.set(packet_number, false);
             }
@@ -104,17 +105,27 @@ public class ReliableDelivery {
                     received.set(j,false);
                 }
             }
-            //TODO put this in correct place: check if timer ran out, if so and packet has not been acknowledged, send again
-            if((System.currentTimeMillis() - timeOuttimer) > TIMEOUT){
-                if(!acknowledged.get(packet_waiting_to_send.seqNum)) {
-                    packetHandling.sendPacket(packet_waiting_to_send);
-                    System.out.println("resending packet" + packet_waiting_to_send.seqNum);
-                }
-                timeOuttimer = System.currentTimeMillis();
-            }
-
-            //TODO timeout implementeren
         }
+    }
+
+    private void makeTimeout(final BigPacket packet_waiting_to_send) {
+        Timer timer = new Timer(TIMEOUT, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                if(!acknowledged.get(packet_waiting_to_send.seqNum)) {
+                    try {
+                        packetHandling.sendPacket(packet_waiting_to_send);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    System.out.println("resending packet" + packet_waiting_to_send.seqNum);
+                    makeTimeout(packet_waiting_to_send);
+
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
     }
 
     public void TCPreceive(BigPacket packet) throws InterruptedException {

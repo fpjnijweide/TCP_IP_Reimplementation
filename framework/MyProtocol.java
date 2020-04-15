@@ -35,6 +35,7 @@ public class MyProtocol {
     private final List<SmallPacket> receivedNegotiationPackets = new ArrayList<>();
     private final List<SmallPacket> receivedRequestPackets = new ArrayList<>();
     private final List<SmallPacket> forwardedPackets = new ArrayList<>();
+    private boolean alwaysBroadcast = false;
     List<Integer> timeslotsRequested;
     List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
     List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
@@ -50,6 +51,7 @@ public class MyProtocol {
     private int exponentialBackoffFactor = 1;
     private State state = State.READY;
     ReliableDelivery reliableDelivery;
+    private int destIP;
 
 
     public MyProtocol(int inputSourceIP) {
@@ -60,6 +62,11 @@ public class MyProtocol {
         packetHandling = new PacketHandling(sendingQueue);
         reliableDelivery = new ReliableDelivery(packetHandling);
 
+        destIP = getDestNode(routing.sourceIP);
+        if (destIP == -1) {
+            destIP = 0;
+            alwaysBroadcast = true;
+        }
 
         new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
@@ -91,13 +98,12 @@ public class MyProtocol {
 
     public int getDestNode (int sourceIP){
         //dialog box to input destination node
-        String destinationNode = JOptionPane.showInputDialog(null,"Hello, you are node " + sourceIP + ". Enter destination node: ");
-        return Integer.parseInt(destinationNode);
+        String destinationNode = JOptionPane.showInputDialog(null,"Hello, you are node " + sourceIP + ". Enter destination node (or type ALL for multicast): ");
+        return destinationNode.equals("ALL")? -1 : Integer.parseInt(destinationNode);
     }
 
     @SuppressWarnings("ConstantConditions")
     public void handleInput() throws IOException, InterruptedException {
-        int destIP = getDestNode(routing.sourceIP);
 
         ByteBuffer temp = ByteBuffer.allocate(1024);
         int read;
@@ -120,7 +126,7 @@ public class MyProtocol {
                         packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
                         break;
                     default:
-                        reliableDelivery.TCPsend(read, text,routing,packetHandling);
+                        reliableDelivery.TCPsend(read, text,routing,packetHandling,destIP,alwaysBroadcast);
                         break;
 
                 }
