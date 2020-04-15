@@ -592,11 +592,16 @@ public class MyProtocol{
 
         SmallPacket second_packet = new SmallPacket(packet2_bits_1_and_2, packet2_bits_3_and_4,packet2_acknum,true,true,false,packet2_synflag,true);
 
+        List<Integer> route_ips = getMulticastForwardingRoute();
+
         sendSmallPacket(first_packet);
+        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
         sendSmallPacket(second_packet);
+        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+
         requestPackets.clear();
 
-        // TODO @Freek change state when the time is right
+        startDataPhase(timeslotsRequested);
         // TODO @Freek receiver side
     }
 
