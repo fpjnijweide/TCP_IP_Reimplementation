@@ -46,7 +46,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE;
     }
 
     public class SmallPacket{
@@ -544,9 +544,8 @@ public class MyProtocol{
         wait(thisNodesSendTimeslot*SHORT_PACKET_TIMESLOT);
 
         int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
-        int bit_1_and_2 = how_many_timeslots_do_we_want & 0b1100;
-        int bit_3_and_4 = how_many_timeslots_do_we_want & 0b0011;
-        boolean bit_3 = (how_many_timeslots_do_we_want & 0b0010) >> 1 == 1;
+        int bit_1_and_2 = (how_many_timeslots_do_we_want & 0b1100) >> 2;
+        boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
         boolean bit_4 = (how_many_timeslots_do_we_want & 0b0001) == 1;
 
         int link_topology_bits = getLinkTopologyBits();
@@ -568,17 +567,44 @@ public class MyProtocol{
 
     }
 
-    private void startPostRequestMasterPhase() {
-        // TODO @Freek set state
-        // TODO @Freek loop through requestpackets
-        // TODO @Freek clear requestpackets
+    private void startPostRequestMasterPhase() throws InterruptedException {
+        setState(State.POST_REQUEST_MASTER);
+        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
+
+        List<Integer> timeslotsRequested = new ArrayList<>();
+        for (SmallPacket packet: requestPackets) {
+            int timeslots = (packet.destIP << 2) | ((packet.ackFlag?1:0) << 1) | (packet.SYN?1:0);
+            timeslotsRequested.add(timeslots);
+        }
+        
+        timeslotsRequested.add(sourceIP,how_many_timeslots_do_we_want); // Adding our own request for timeslots
+        
+        int packet1_bits_1_and_2 = (timeslotsRequested.get(0) & 0b1100) >> 2;
+        int packet1_bits_3_and_4 = (timeslotsRequested.get(0) & 0b0011);
+        int topology = 0; // TODO @Freek update topology based on all these packets + your own incomplete topology
+        SmallPacket first_packet = new SmallPacket(packet1_bits_1_and_2,packet1_bits_3_and_4,topology,false,true,false,false,true);
+
+        int packet2_bits_1_and_2 = (timeslotsRequested.get(1) & 0b1100) >> 2;
+        int packet2_bits_3_and_4 = (timeslotsRequested.get(1) & 0b0011);
+
+        boolean packet2_synflag = (timeslotsRequested.get(2) & 0b1000) >> 3 == 1;
+        int packet2_acknum = ((timeslotsRequested.get(2) & 0b0111) << 4) | timeslotsRequested.get(3);
+
+        SmallPacket second_packet = new SmallPacket(packet2_bits_1_and_2, packet2_bits_3_and_4,packet2_acknum,true,true,false,packet2_synflag,true);
+
+        sendSmallPacket(first_packet);
+        sendSmallPacket(second_packet);
+        requestPackets.clear();
 
         // TODO @Freek change state when the time is right
+        // TODO @Freek receiver side
     }
 
     private void startPostRequestSlavePhase(SmallPacket packet) {
-        // TODO @Freek set state
-        // TODO @Freek clear forwardedPackets
+        setState(State.POST_REQUEST_SLAVE);
+        forwardedPackets.clear();
+
+        // TODO might there be another packet coming? implement master first
         // TODO @Freek start of data phase depends on the "hop" counter in this packet.
         // TODO @Freek change state when time is right
     }
@@ -954,6 +980,13 @@ public class MyProtocol{
                         break;
 
                 }
+                break;
+            case POST_REQUEST_MASTER:
+                // TODO @freek
+                break;
+            case POST_REQUEST_SLAVE:
+                // TODO @freek
+
                 break;
             case READY:
                 switch (type) {
