@@ -1015,11 +1015,13 @@ public class MyProtocol {
     }
 
     private void handleBigPacket(BigPacket bigPacket) {
-
+        System.out.println("New message from " +bigPacket.sourceIP+ ": ");
+        for (byte aByte:bigPacket.payloadWithoutPadding) {
+            System.out.print((char) aByte);
+        }
     }
 
     private void handleSmallPacket(SmallPacket smallPacket) {
-
     }
 
     private void finalPostNegotiationHandler(SmallPacket packet) {
