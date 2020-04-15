@@ -1,9 +1,9 @@
 package framework;
 
 public enum State {
-    NULL,
-    READY,
+    READY, // This is a state which does not use access control, for testing the TCP implementation.
 
+    // Other states are described in the report.
     DISCOVERY,
     SENT_DISCOVERY,
     NEGOTIATION_MASTER,

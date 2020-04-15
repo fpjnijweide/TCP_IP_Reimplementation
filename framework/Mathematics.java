@@ -6,6 +6,7 @@ import java.util.List;
 
 public class Mathematics {
     public static <E> List<E> decodePermutationOfThree(int order, List<E> list) {
+        // Given a list of 3 items, returns 0 to 2 of them in a certain order, depending on the "order" number supplied.
         // Obviously these are just permutations of a list of 3 items. Using some abstract algebra, you wouldn't need to hardcode this
         // But that is outside the scope of this course
         switch (order) {
@@ -35,22 +36,23 @@ public class Mathematics {
     }
 
     public static int encodePermutationOfThree(int a, int b) {
+        // Does the inverse of the function above; -1 is used if an item is not included.
         switch (a) {
             case 0:
                 switch (b) {
-                    case 1:
+                    case 1:// 0 1
                         return 4;
-                    case 2:
+                    case 2: // 0 2
                         return 5;
-                    case -1:
+                    case -1: // 0 -1
                         return 1;
                 }
                 break;
             case 1:
                 switch (b) {
-                    case 0:
+                    case 0: // 1 0
                         return 6;
-                    case 2:
+                    case 2: // etc...
                         return 7;
                     case -1:
                         return 2;
@@ -91,6 +93,7 @@ public class Mathematics {
     }
 
     public static int encodePermutationOfTwo(int a, int b) {
+        // Does the opposite of the function above
         if (a == -1 && b == -1) {
             return 0;
         } else if (a == 0 && b == -1) {
