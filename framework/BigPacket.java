@@ -16,7 +16,7 @@ public class BigPacket extends SmallPacket {
     public BigPacket(int sourceIP, int destIP, int ackNum, boolean ackFlag, boolean request, boolean negotiate, boolean SYN, boolean broadcast, byte[] payloadWithoutPadding, int seqNum, boolean morePackFlag, int size, int hops) {
         super(sourceIP, destIP, ackNum, ackFlag, request, negotiate, SYN, broadcast);
         this.payload = new byte[28];
-        for (int j = 0; j < size-4; j++) {
+        for (int j = 0; j < size - 4; j++) {
             payload[j] = payloadWithoutPadding[j];
         }
         this.payloadWithoutPadding = payloadWithoutPadding;

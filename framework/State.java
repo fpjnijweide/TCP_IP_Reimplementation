@@ -20,5 +20,5 @@ public enum State {
     REQUEST_MASTER,
     POST_REQUEST_MASTER,
     POST_REQUEST_SLAVE,
-    DATA_PHASE;
+    DATA_PHASE
 }

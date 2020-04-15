@@ -10,7 +10,8 @@ public class Mathematics {
         // But that is outside the scope of this course
         switch (order) {
             case 0:
-                return new ArrayList<E>(){}; // -1 -1
+                return new ArrayList<E>() {
+                }; // -1 -1
             case 1:
                 return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
             case 2:
@@ -18,17 +19,17 @@ public class Mathematics {
             case 3:
                 return new ArrayList<E>(Arrays.asList(list.get(2))); // 2 -1
             case 4:
-                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
+                return new ArrayList<E>(Arrays.asList(list.get(0), list.get(1))); // 0 1
             case 5:
-                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(2))); // 0 2
+                return new ArrayList<E>(Arrays.asList(list.get(0), list.get(2))); // 0 2
             case 6:
-                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0))); // 1 0
+                return new ArrayList<E>(Arrays.asList(list.get(1), list.get(0))); // 1 0
             case 7:
-                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(2))); // 1 2
+                return new ArrayList<E>(Arrays.asList(list.get(1), list.get(2))); // 1 2
             case 8:
-                return new ArrayList<E>(Arrays.asList(list.get(2),list.get(0))); // 2 0
+                return new ArrayList<E>(Arrays.asList(list.get(2), list.get(0))); // 2 0
             case 9:
-                return new ArrayList<E>(Arrays.asList(list.get(2),list.get(1))); // 2 1
+                return new ArrayList<E>(Arrays.asList(list.get(2), list.get(1))); // 2 1
         }
         return null;
     }
@@ -75,29 +76,30 @@ public class Mathematics {
         // See description of permutationOfThree
         switch (order) {
             case 0:
-                return new ArrayList<E>(){}; // -1 -1
+                return new ArrayList<E>() {
+                }; // -1 -1
             case 1:
                 return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
             case 2:
                 return new ArrayList<E>(Arrays.asList(list.get(1))); // 1 -1
             case 3:
-                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
+                return new ArrayList<E>(Arrays.asList(list.get(0), list.get(1))); // 0 1
             case 4:
-                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));// 1 0
+                return new ArrayList<E>(Arrays.asList(list.get(1), list.get(0)));// 1 0
         }
         return null;
     }
 
     public static int encodePermutationOfTwo(int a, int b) {
-        if (a==-1 && b==-1) {
+        if (a == -1 && b == -1) {
             return 0;
-        } else if (a==0 && b==-1) {
+        } else if (a == 0 && b == -1) {
             return 1;
-        } else if (a==1 && b==-1) {
+        } else if (a == 1 && b == -1) {
             return 2;
-        } else if (a==0 && b==1) {
+        } else if (a == 0 && b == 1) {
             return 3;
-        } else if (a==1 && b==0) {
+        } else if (a == 1 && b == 0) {
             return 4;
         }
         return -1;

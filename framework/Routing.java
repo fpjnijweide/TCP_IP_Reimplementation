@@ -26,7 +26,7 @@ public class Routing {
         List<List<Integer>> frontierPaths = new ArrayList<>();
 
         for (int i = 0; i <= highest_assigned_ip; i++) {
-            if (i!=firstIP && longTopology[firstIP][i]){
+            if (i != firstIP && longTopology[firstIP][i]) {
                 frontier.add(i);
                 frontierPaths.add(new ArrayList<Integer>());
             }
@@ -42,8 +42,8 @@ public class Routing {
                     node_index = i;
                 }
             }
-            if (node_index==-1){
-                done=true;
+            if (node_index == -1) {
+                done = true;
                 break;
             }
             int node_to_explore = frontier.remove(node_index); // TODO hier gaat het fout
@@ -53,12 +53,12 @@ public class Routing {
             explored.add(node_to_explore);
             exploredPaths.add(nodePath);
 
-            List<Integer> newNodePath = nodePath.subList(0,nodePath.size());
+            List<Integer> newNodePath = nodePath.subList(0, nodePath.size());
             newNodePath.add(node_to_explore);
 
 
             for (int unknownNode = 0; unknownNode <= highest_assigned_ip; unknownNode++) {
-                if (unknownNode!=node_to_explore && longTopology[node_to_explore][unknownNode] && !explored.contains(unknownNode)){
+                if (unknownNode != node_to_explore && longTopology[node_to_explore][unknownNode] && !explored.contains(unknownNode)) {
                     // We found a path to a node we haven't explored yet
                     if (!frontier.contains(unknownNode)) {
                         frontier.add(unknownNode);
@@ -68,8 +68,8 @@ public class Routing {
                         int unknownNodeFrontierIndex = frontier.indexOf(unknownNode);
                         List<Integer> unknownNodeFrontierPath = frontierPaths.get(unknownNodeFrontierIndex);
                         if (newNodePath.size() < unknownNodeFrontierPath.size()) {
-                            frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
-                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()){
+                            frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
+                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()) {
                             boolean thisPathIsBetter = false;
                             for (int i = 0; i < newNodePath.size(); i++) {
                                 if (newNodePath.get(i) > unknownNodeFrontierPath.get(i)) {
@@ -78,20 +78,20 @@ public class Routing {
                                     thisPathIsBetter = true;
                                 }
                                 if (thisPathIsBetter) {
-                                    frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
+                                    frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
                                 }
                             }
                         }
                     }
                 }
             }
-            done = frontier.size()==0;
+            done = frontier.size() == 0;
 
 
         }
         List<Integer> multicastPath = new ArrayList<>();
-        for (List<Integer> path: exploredPaths) {
-            for (Integer pathNode: path) {
+        for (List<Integer> path : exploredPaths) {
+            for (Integer pathNode : path) {
                 if (!multicastPath.contains(pathNode)) {
                     multicastPath.add(pathNode);
                 }
@@ -108,7 +108,7 @@ public class Routing {
         List<List<Integer>> frontierPaths = new ArrayList<>();
 
         for (int i = 0; i <= highest_assigned_ip; i++) {
-            if (i!=firstIP && longTopology[firstIP][i]){
+            if (i != firstIP && longTopology[firstIP][i]) {
                 frontier.add(i);
                 frontierPaths.add(new ArrayList<Integer>());
             }
@@ -135,12 +135,12 @@ public class Routing {
             explored.add(node_to_explore);
             exploredPaths.add(nodePath);
 
-            List<Integer> newNodePath = nodePath.subList(0,nodePath.size());
+            List<Integer> newNodePath = nodePath.subList(0, nodePath.size());
             newNodePath.add(node_to_explore);
 
 
             for (int unknownNode = 0; unknownNode <= highest_assigned_ip; unknownNode++) {
-                if (unknownNode!=node_to_explore && longTopology[node_to_explore][unknownNode] && !explored.contains(unknownNode)){
+                if (unknownNode != node_to_explore && longTopology[node_to_explore][unknownNode] && !explored.contains(unknownNode)) {
                     // We found a path to a node we haven't explored yet
                     if (!frontier.contains(unknownNode)) {
                         frontier.add(unknownNode);
@@ -150,8 +150,8 @@ public class Routing {
                         int unknownNodeFrontierIndex = frontier.indexOf(unknownNode);
                         List<Integer> unknownNodeFrontierPath = frontierPaths.get(unknownNodeFrontierIndex);
                         if (newNodePath.size() < unknownNodeFrontierPath.size()) {
-                            frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
-                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()){
+                            frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
+                        } else if (newNodePath.size() == unknownNodeFrontierPath.size()) {
                             boolean thisPathIsBetter = false;
                             for (int i = 0; i < newNodePath.size(); i++) {
                                 if (newNodePath.get(i) > unknownNodeFrontierPath.get(i)) {
@@ -160,7 +160,7 @@ public class Routing {
                                     thisPathIsBetter = true;
                                 }
                                 if (thisPathIsBetter) {
-                                    frontierPaths.set(unknownNodeFrontierIndex,newNodePath);
+                                    frontierPaths.set(unknownNodeFrontierIndex, newNodePath);
                                 }
                             }
                         }
@@ -178,7 +178,7 @@ public class Routing {
         int resultNumber = 0;
         for (int i = 0; i < shortTopology.length; i++) {
             // start from left
-            resultNumber |= (shortTopology[i]?1:0) << 5-i;
+            resultNumber |= (shortTopology[i] ? 1 : 0) << 5 - i;
         }
         return resultNumber;
     }
@@ -187,7 +187,7 @@ public class Routing {
         shortTopology = new boolean[6];
         longTopology = new boolean[4][4];
         for (int i = 0; i < shortTopology.length; i++) {
-            shortTopology[i] = ( ( receivedTopology & (1 << (5-i)) ) >> (5-i) ) == 1;
+            shortTopology[i] = ((receivedTopology & (1 << (5 - i))) >> (5 - i)) == 1;
         }
 
         updateLongTopologyFromShortTopology();
@@ -203,26 +203,26 @@ public class Routing {
             boolean[][] currentlongTopology = new boolean[4][4];
             int currentTopologyNumber = topologyNumbers.get(i);
             for (int j = 0; j < currentShortTopology.length; j++) {
-                currentShortTopology[j] = ( ( currentTopologyNumber & (1 << (5-i)) ) >> (5-i) ) == 1;
+                currentShortTopology[j] = ((currentTopologyNumber & (1 << (5 - i))) >> (5 - i)) == 1;
             }
             shortTopologies.add(currentShortTopology);
 
             for (int k = 0; k <= highest_assigned_ip; k++) {
                 for (int l = 0; l <= highest_assigned_ip; l++) {
-                    if (k==l) {
-                        currentlongTopology[k][l]=true;
+                    if (k == l) {
+                        currentlongTopology[k][l] = true;
                     }
-                    if (k==0 && l>0) {
-                        currentlongTopology[0][l] = currentShortTopology[l-1];
+                    if (k == 0 && l > 0) {
+                        currentlongTopology[0][l] = currentShortTopology[l - 1];
                     }
-                    if (k>0 && l<k) {
+                    if (k > 0 && l < k) {
                         currentlongTopology[k][l] = currentlongTopology[l][k];
                     }
-                    if (k==1 && l>1) {
-                        currentlongTopology[1][l] = currentShortTopology[l+1];
+                    if (k == 1 && l > 1) {
+                        currentlongTopology[1][l] = currentShortTopology[l + 1];
                     }
-                    if (k==2 && l > 2) {
-                        currentlongTopology[2][l] = currentShortTopology[l+2];
+                    if (k == 2 && l > 2) {
+                        currentlongTopology[2][l] = currentShortTopology[l + 2];
 
                     }
                 }
@@ -237,8 +237,8 @@ public class Routing {
         // make sure resulttopology is symmetric: if one side is 0, the other side is too
         for (int k = 0; k <= highest_assigned_ip; k++) {
             for (int l = 0; l <= highest_assigned_ip; l++) {
-                if (k==l) {
-                    resultTopology[k][l]=true;
+                if (k == l) {
+                    resultTopology[k][l] = true;
                 }
                 if (resultTopology[k][l] != resultTopology[l][k]) {
                     resultTopology[k][l] = false;
@@ -268,7 +268,7 @@ public class Routing {
         checkRoutingTableExpirations();
         neighbor_available[sourceIP] = false; // never list ourselves as neighbor
         neighbor_available[neighborIP] = true;
-        int delay = 40*1000;
+        int delay = 40 * 1000;
         neighbor_expiration_time[neighborIP] = System.currentTimeMillis() + delay;
 
         Timer neighbor_expiration_timer = new Timer(delay + 1, new ActionListener() {
@@ -285,20 +285,20 @@ public class Routing {
     public void updateLongTopologyFromShortTopology() {
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
-                if (i==j) {
-                    longTopology[i][j]=true;
+                if (i == j) {
+                    longTopology[i][j] = true;
                 }
-                if (i==0 && j>0) {
-                    longTopology[0][j] = shortTopology[j-1];
+                if (i == 0 && j > 0) {
+                    longTopology[0][j] = shortTopology[j - 1];
                 }
-                if (i>0 && j<i) {
+                if (i > 0 && j < i) {
                     longTopology[i][j] = longTopology[j][i];
                 }
-                if (i==1 && j>1) {
-                    longTopology[1][j] = shortTopology[j+1];
+                if (i == 1 && j > 1) {
+                    longTopology[1][j] = shortTopology[j + 1];
                 }
-                if (i==2 && j > 2) {
-                    longTopology[2][j] = shortTopology[j+2];
+                if (i == 2 && j > 2) {
+                    longTopology[2][j] = shortTopology[j + 2];
 
                 }
             }
@@ -308,14 +308,14 @@ public class Routing {
     public void updateShortTopologyFromLongTopology() {
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
-                if (i==0 && j>0) {
-                    shortTopology[j-1] = longTopology[0][j];
+                if (i == 0 && j > 0) {
+                    shortTopology[j - 1] = longTopology[0][j];
                 }
-                if (i==1 && j>1) {
-                    shortTopology[j+1] = longTopology[1][j];
+                if (i == 1 && j > 1) {
+                    shortTopology[j + 1] = longTopology[1][j];
                 }
-                if (i==2 && j > 2) {
-                    shortTopology[j+2] = longTopology[2][j];
+                if (i == 2 && j > 2) {
+                    shortTopology[j + 2] = longTopology[2][j];
 
                 }
             }
@@ -325,17 +325,17 @@ public class Routing {
     public void updateTopologyFromAvailableNeighbors() {
         // Update the relevant row in matrix
         for (int i = 0; i <= highest_assigned_ip; i++) {
-            if (i!= sourceIP) {
+            if (i != sourceIP) {
                 longTopology[sourceIP][i] = neighbor_available[i];
             }
         }
         // Because it's symmetric: mirror the matrix, and make sure the diagonal is always true
         for (int i = 0; i <= highest_assigned_ip; i++) {
             for (int j = 0; j <= highest_assigned_ip; j++) {
-                if (i==j) {
-                    longTopology[i][j]=true;
+                if (i == j) {
+                    longTopology[i][j] = true;
                 }
-                if (i>0 && j<i) {
+                if (i > 0 && j < i) {
                     longTopology[i][j] = longTopology[j][i];
                 }
             }
@@ -344,35 +344,33 @@ public class Routing {
     }
 
 
-
-
     public int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(ip);
 
-        int first_hop = route_ips.size() > 0? route_ips.get(0) : -1;
-        int second_hop = route_ips.size() > 1? route_ips.get(1) : -1;
+        int first_hop = route_ips.size() > 0 ? route_ips.get(0) : -1;
+        int second_hop = route_ips.size() > 1 ? route_ips.get(1) : -1;
 
         int first_hop_index = all_ips.indexOf(first_hop);
         int second_hop_index = all_ips.indexOf(second_hop);
 
-        return Mathematics.encodePermutationOfThree(first_hop_index,second_hop_index);
+        return Mathematics.encodePermutationOfThree(first_hop_index, second_hop_index);
     }
 
     public List<Integer> getMulticastForwardingRouteFromOrder(int ip, int order) {
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(ip);
         return Mathematics.decodePermutationOfThree(order, all_ips);
     }
 
     public int getUnicastScheme(int sourceIP) {
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         int[] unicast_route_number = new int[3];
         all_ips.remove(sourceIP);
         unicastRoutes.clear();
         for (int i = 0; i < all_ips.size(); i++) {
             int destinationIP = all_ips.get(i);
-            if (destinationIP<=highest_assigned_ip) {
+            if (destinationIP <= highest_assigned_ip) {
                 List<Integer> relevant_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
                 relevant_ips.remove(sourceIP);
                 relevant_ips.remove(destinationIP);
@@ -388,7 +386,7 @@ public class Routing {
                 unicast_route_number[i] = Mathematics.encodePermutationOfTwo(first_hop_index, second_hop_index);
             }
         }
-        return unicast_route_number[0]*5*5  + unicast_route_number[1]*5 + unicast_route_number[2];
+        return unicast_route_number[0] * 5 * 5 + unicast_route_number[1] * 5 + unicast_route_number[2];
     }
 
 }

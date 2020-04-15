@@ -13,7 +13,7 @@ public class SmallPacket {
     boolean negotiate;
     int ackNum; // 7 bit number, range [0,127]
 
-    public SmallPacket(){
+    public SmallPacket() {
 
     }
 
