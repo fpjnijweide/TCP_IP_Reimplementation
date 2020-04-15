@@ -23,12 +23,12 @@ public class PacketHandling {
 
 
     public void sendPacket(BigPacket packet) throws InterruptedException {
-        ByteBuffer toSend = ByteBuffer.allocate(32); // jave includes newlines in System.in.read, so -2 to ignore this
+        ByteBuffer toSend = ByteBuffer.allocate(32);
         byte[] packetBytes = fillBigPacket(packet);
-        toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
+        toSend.put(packetBytes, 0, 32);
         Message msg = new Message(MessageType.DATA, toSend);
-        sending = true;
-        messagesJustSent.add(0, msg);
+        sending = true; // Used for interference detection
+        messagesJustSent.add(0, msg); // Used for interference detection
         sendingQueue.put(msg);
     }
 
@@ -43,13 +43,15 @@ public class PacketHandling {
     }
 
     public byte[] appendToBuffer(BigPacket packet) {
-        // todo rewrite deze functie. je wilt duidelijk hele packets bufferen (zodat je later bijvoorbeeld kan kijken wat de laatste sequence nr is die je krijgt enzo)
+        // When dealing with packets that contain a large payload that has been split up, this method can be used
+        // It appends the payload of the packet to the buffer. If this packet no longer has the "more packets coming"
+        // flag set, which means it's the last packet of this split payload. In that case, return the buffer contents.
         for (int i = 0; i < packet.payloadWithoutPadding.length; i++) {
             splitPacketBuffer.add(packet.payloadWithoutPadding[i]);
         }
 
         if (packet.morePackFlag) {
-            return new byte[]{};
+            return new byte[]{}; // Return an empty list to show that the buffer has not been emptied yet
         } else {
             byte[] bufferCopy = new byte[splitPacketBuffer.size()];
             for (int i = 0; i < splitPacketBuffer.size(); i++) {
@@ -61,12 +63,14 @@ public class PacketHandling {
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
+        // Used to fill 2 bytes of data from a SmallPacket object.
         byte first_byte = (byte) (packet.sourceIP << 6 | packet.destIP << 4 | (packet.ackFlag ? 1 : 0) << 3 | (packet.request ? 1 : 0) << 2 | (packet.broadcast ? 1 : 0) << 1 | (packet.SYN ? 1 : 0));
         byte second_byte = (byte) ((packet.negotiate ? 1 : 0) << 7 | packet.ackNum);
         return new byte[]{first_byte, second_byte};
     }
 
     public byte[] fillBigPacket(BigPacket packet) {
+        // Used to fill 32 bytes of data from a BigPacket object.
         byte[] result = new byte[32];
         byte[] first_two_bytes = fillSmallPacket(packet);
         result[0] = first_two_bytes[0];
@@ -80,6 +84,7 @@ public class PacketHandling {
     }
 
     public SmallPacket readSmallPacket(byte[] bytes) {
+        // Reads 2 bytes and turns it into a SmallPacket object
         SmallPacket packet = new SmallPacket();
         packet.sourceIP = (bytes[0] >> 6) & 0x03;
         packet.destIP = (bytes[0] >> 4) & 0x03;
@@ -95,6 +100,7 @@ public class PacketHandling {
     }
 
     public BigPacket readBigPacket(byte[] bytes) {
+        // Reads 32 bytes and turns it into a SmallPacket object
         SmallPacket smallPacket = readSmallPacket(bytes);
         boolean morePackFlag = ((bytes[2] >> 7) & 0x01) == 1;
         int seqNum = bytes[2] & 0x7F;
@@ -117,13 +123,14 @@ public class PacketHandling {
     }
 
     public void printByteBuffer(byte[] bytes, boolean buffered) {
+        // If you receive a packet, this method is useful for debugging info. Prints the info of each packet.
         if (bytes!=null) {
-            if (buffered) {
+            if (buffered) { // We aren't printing the contents of a packet, but of a buffer.
                 System.out.print("\nBUFFERED, COMPLETE MESSAGE: ");
                 for (byte aByte: bytes) {
                     System.out.print((char) aByte);
                 }
-            } else if (bytes.length == 2) {
+            } else if (bytes.length == 2) { // Small packet
                 SmallPacket packet = readSmallPacket(bytes);
                 System.out.print("\nHEADER: ");
                 for (byte aByte : bytes) {
@@ -133,7 +140,7 @@ public class PacketHandling {
                 System.out.print("\nSOURCE IP: " + packet.sourceIP);
                 System.out.print("\nDEST IP: " + packet.destIP);
                 System.out.print("\nACK NUM: " + packet.ackNum);
-            } else {
+            } else { // Large packet
                 BigPacket packet = readBigPacket(bytes);
                 System.out.print("\nHEADER: ");
                 for (int i = 0; i < 4; i++) {

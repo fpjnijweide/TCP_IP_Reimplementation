@@ -363,25 +363,33 @@ public class Routing {
 
 
     public int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
+        // If you know your own IP, and have a list of IPs you want to use for some purpose (such as multicast forwarding)
+        // in a certain order, you can store this order in a very short format by assigning to each possible permutation a number.
+        // We are only interested in permutations of up to size 2.
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(ip);
 
-        int first_hop = route_ips.size() > 0 ? route_ips.get(0) : -1;
-        int second_hop = route_ips.size() > 1 ? route_ips.get(1) : -1;
+        int first_hop = route_ips.size() > 0 ? route_ips.get(0) : -1; // Get the IP of the first hop. If we do not have a first hop, use -1
+        int second_hop = route_ips.size() > 1 ? route_ips.get(1) : -1; // idem dito
 
-        int first_hop_index = all_ips.indexOf(first_hop);
+        int first_hop_index = all_ips.indexOf(first_hop); // Now, in the list of IPs sorted in ascending order, without your own IP, get the index of these IPs
         int second_hop_index = all_ips.indexOf(second_hop);
 
-        return Mathematics.encodePermutationOfThree(first_hop_index, second_hop_index);
+        return Mathematics.encodePermutationOfThree(first_hop_index, second_hop_index); // Use these indices to find a number 0-9 which represents this multicast configuration
     }
 
     public List<Integer> getMulticastForwardingRouteFromOrder(int ip, int order) {
+        // Does the reverse of the previous method
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(ip);
         return Mathematics.decodePermutationOfThree(order, all_ips);
     }
 
     public int getUnicastScheme(int sourceIP) {
+        // Does the same thing as the methods we just saw, but instead of having to choose from three IPs (all but the source node)
+        // we have to choose from two IPs (all but the source and destination).
+        // We then do this for every possible destination node, resulting in three numbers from 0-4
+        // And store these in a number using base 5.
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         int[] unicast_route_number = new int[3];
         all_ips.remove(sourceIP);
