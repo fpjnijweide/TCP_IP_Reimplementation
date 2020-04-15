@@ -1,3 +1,6 @@
+package framework;
+
+
 import client.*;
 
 import javax.swing.Timer;
@@ -746,13 +749,13 @@ public class MyProtocol{
         int first_hop_index = all_ips.indexOf(first_hop);
         int second_hop_index = all_ips.indexOf(second_hop);
 
-        return encodePermutationOfThree(first_hop_index,second_hop_index);
+        return Mathematics.encodePermutationOfThree(first_hop_index,second_hop_index);
     }
 
     public List<Integer> getMulticastForwardingRouteFromOrder(int ip, int order) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         all_ips.remove(ip);
-        return decodePermutationOfThree(order, all_ips);
+        return Mathematics.decodePermutationOfThree(order, all_ips);
     }
 
     private int getUnicastScheme(int sourceIP) {
@@ -775,7 +778,7 @@ public class MyProtocol{
                 int first_hop_index = relevant_ips.indexOf(first_hop);
                 int second_hop_index = relevant_ips.indexOf(second_hop);
 
-                unicast_route_number[i] = encodePermutationOfTwo(first_hop_index, second_hop_index);
+                unicast_route_number[i] = Mathematics.encodePermutationOfTwo(first_hop_index, second_hop_index);
             }
         }
         return unicast_route_number[0]*5*5  + unicast_route_number[1]*5 + unicast_route_number[2];
@@ -1715,7 +1718,7 @@ public class MyProtocol{
 
                 ip_list.remove(i); // this will remove by index, not element
                 int order = route_numbers[i];
-                List<Integer> unicastRoute = decodePermutationOfTwo(order, ip_list);
+                List<Integer> unicastRoute = Mathematics.decodePermutationOfTwo(order, ip_list);
                 unicastRoutes.add(unicastRoute);
             }
             unicastRouteToMaster = unicastRoutes.get(all_ips.indexOf(sourceIP));
@@ -1816,103 +1819,7 @@ public class MyProtocol{
 
 
 
-    public <E> List<E> decodePermutationOfThree(int order, List<E> list) {
-        // Obviously these are just permutations of a list of 3 items. Using some abstract algebra, you wouldn't need to hardcode this
-        // But that is outside the scope of this course
-         switch (order) {
-             case 0:
-                 return new ArrayList<E>(){}; // -1 -1
-             case 1:
-                 return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
-             case 2:
-                 return new ArrayList<E>(Arrays.asList(list.get(1))); // 1 -1
-             case 3:
-                 return new ArrayList<E>(Arrays.asList(list.get(2))); // 2 -1
-             case 4:
-                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
-             case 5:
-                 return new ArrayList<E>(Arrays.asList(list.get(0),list.get(2))); // 0 2
-             case 6:
-                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0))); // 1 0
-             case 7:
-                 return new ArrayList<E>(Arrays.asList(list.get(1),list.get(2))); // 1 2
-             case 8:
-                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(0))); // 2 0
-             case 9:
-                 return new ArrayList<E>(Arrays.asList(list.get(2),list.get(1))); // 2 1
-         }
-        return null;
-    }
 
-    public int encodePermutationOfThree(int a, int b) {
-        switch (a) {
-            case 0:
-                switch (b) {
-                    case 1:
-                        return 4;
-                    case 2:
-                        return 5;
-                    case -1:
-                        return 1;
-                }
-                break;
-            case 1:
-                switch (b) {
-                    case 0:
-                        return 6;
-                    case 2:
-                        return 7;
-                    case -1:
-                        return 2;
-                }
-                break;
-            case 2:
-                switch (b) {
-                    case 0:
-                        return 8;
-                    case 1:
-                        return 9;
-                    case -1:
-                        return 3;
-                }
-                break;
-            case -1:
-                return 0;
-        }
-        return -1;
-    }
-
-    public <E> List<E> decodePermutationOfTwo(int order, List<E> list) {
-        // See description of permutationOfThree
-        switch (order) {
-            case 0:
-                return new ArrayList<E>(){}; // -1 -1
-            case 1:
-                return new ArrayList<E>(Arrays.asList(list.get(0))); // 0 -1
-            case 2:
-                return new ArrayList<E>(Arrays.asList(list.get(1))); // 1 -1
-            case 3:
-                return new ArrayList<E>(Arrays.asList(list.get(0),list.get(1))); // 0 1
-            case 4:
-                return new ArrayList<E>(Arrays.asList(list.get(1),list.get(0)));// 1 0
-        }
-        return null;
-    }
-
-    public int encodePermutationOfTwo(int a, int b) {
-        if (a==-1 && b==-1) {
-            return 0;
-        } else if (a==0 && b==-1) {
-            return 1;
-        } else if (a==1 && b==-1) {
-            return 2;
-        } else if (a==0 && b==1) {
-            return 3;
-        } else if (a==1 && b==0) {
-            return 4;
-        }
-        return -1;
-    }
 
 }
 
