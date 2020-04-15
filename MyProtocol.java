@@ -47,7 +47,8 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE, DATA_PHASE;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER,
+        WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE, DATA_PHASE;
     }
 
     public class SmallPacket{
@@ -399,6 +400,10 @@ public class MyProtocol{
         // TODO @freek implement
     }
 
+    public void fillRoutingTable (int neighborIP) {
+        // TODO @freek implement (possibly TTL?)
+    }
+
     private int getMulticastForwardingRouteNumber(int ip, List<Integer> route_ips) {
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         all_ips.remove(ip);
@@ -500,6 +505,9 @@ public class MyProtocol{
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
 
         postNegotiationSlaveforwardingScheme = getMulticastForwardingRouteFromOrder(packet.sourceIP,multicastSchemeNumber);
+
+        if (hops==0) fillRoutingTable(packet.sourceIP);
+
 
         if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
             // You have to forward this time
@@ -633,6 +641,7 @@ public class MyProtocol{
 
         if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
             // You have to forward this time
+            // Source IP is not included here. No forwarding possible.
             // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
             packet.sourceIP +=1;
             try {
@@ -944,6 +953,7 @@ public class MyProtocol{
                             if (!packet.SYN && packet.sourceIP != packet.destIP) {
                                 highest_assigned_ip = packet.destIP;
                                 int hops = packet.ackNum >> 5;
+                                if (hops==0) fillRoutingTable(packet.sourceIP);
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
@@ -978,10 +988,11 @@ public class MyProtocol{
                                     current_master = packet.sourceIP;
                                 }
 
-
                                 int hops = packet.ackNum >> 5;
+                                if (hops==0) fillRoutingTable(packet.sourceIP);
                                 if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                                     // You have to forward this time
+                                    // TODO maybe we don't ever have to forward, just comment all this
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
                                     packet.ackNum += (1 << 5);
                                     try {
@@ -1024,6 +1035,7 @@ public class MyProtocol{
                         all_ips.remove(current_master);
                         if (!packet.broadcast && !packet.negotiate && packet.request) {
                             // If we are in the route of the person that sent this packet
+
                             if (unicastRoutes.get( all_ips.indexOf(packet.sourceIP)).contains(sourceIP) && !forwardedPackets.contains(packet)) { // TODO THIS MIGHT NOT WORK
                                 try {
                                     sendSmallPacket(packet); // We have to forward it
@@ -1083,6 +1095,7 @@ public class MyProtocol{
                 // TODO @FREEK IMPLEMENT
                 // TODO READ DATA if it's for you
                 // TODO forward data if you're on the route (header should contain hop counter. we can use our internal state to determine if we are on best path)
+                // TODO whenever you catch a packet, read its hops. If you are on unicast path in correct hop (and not in forwardedpackets), forward it and store in forwardedpackets and fill routing table
                 break;
             case READY:
                 switch (type) {
