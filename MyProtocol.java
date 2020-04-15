@@ -371,6 +371,7 @@ public class MyProtocol{
     }
 
     private void startNegotiationStrangerPhase() throws InterruptedException {
+        tiebreaker = new Random().nextInt(1 << 5);
         setState(State.NEGOTIATION_STRANGER);
         this.negotiation_phases_encountered++;
         for (int i = 0; i < this.negotiation_phase_stranger_length; i++) {
@@ -379,9 +380,10 @@ public class MyProtocol{
             }
             float roll = new Random().nextFloat() *(1+ ((float)this.negotiation_phases_encountered-1)/10);
             if (roll > 0.25) {
-                tiebreaker = new Random().nextInt(1 << 5);
                 SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,false,true,false,true);
                 sendSmallPacket(packet);
+                startNegotiationStrangerDonePhase();
+                return;
             } else {
                 sleep(SHORT_PACKET_TIMESLOT);
             }
@@ -813,10 +815,12 @@ public class MyProtocol{
         for (SmallPacket negotiation_packet: negotiatedPackets) {
             int new_ip = highest_assigned_ip + 1;
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
+
             SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
-                sendSmallPacket(promotionPacket);
-                highest_assigned_ip++;
-                sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+            sendSmallPacket(promotionPacket);
+            highest_assigned_ip = new_ip;
+            updateNeighbors(new_ip);
+            sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         }
         negotiatedPackets.clear();
 
@@ -1435,17 +1439,17 @@ public class MyProtocol{
 
                                 int hops = packet.ackNum >> 5;
                                 if (hops==0) updateNeighbors(packet.sourceIP);
-                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
-                                    // You have to forward this time
-                                    // TODO maybe we don't ever have to forward, just comment all this
-                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
-                                    packet.ackNum += (1 << 5);
-                                    try {
-                                        sendSmallPacket(packet);
-                                    } catch (InterruptedException e) {
-                                        e.printStackTrace();
-                                    }
-                                }
+//                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+//                                    // You have to forward this time
+//                                    // TODO maybe we don't ever have to forward, just comment all this
+//                                    // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
+//                                    packet.ackNum += (1 << 5);
+//                                    try {
+//                                        sendSmallPacket(packet);
+//                                    } catch (InterruptedException e) {
+//                                        e.printStackTrace();
+//                                    }
+//                                }
                             } else if (packet.SYN) {
                                 if (sourceIP != -1) {
                                     finalPostNegotiationHandler(packet);
@@ -1788,7 +1792,7 @@ public class MyProtocol{
 
             } else {
                 SmallPacket packet = readSmallPacket(messagesToSend.get(0).getData().array());
-                if (state==State.NEGOTIATION_STRANGER && packet.negotiate && packet.broadcast && !packet.request && !packet.ackFlag) { // TODO possibly incorrect if
+                if (state==State.NEGOTIATION_STRANGER) { // TODO possibly incorrect if
                     timer.stop();
                     startNegotiationStrangerDonePhase();
                 }
