@@ -189,7 +189,6 @@ public class Routing {
         for (int i = 0; i < shortTopology.length; i++) {
             shortTopology[i] = ((receivedTopology & (1 << (5 - i))) >> (5 - i)) == 1;
         }
-
         updateLongTopologyFromShortTopology();
     }
 
@@ -230,7 +229,7 @@ public class Routing {
             longTopologies.add(currentlongTopology);
 
             for (int j = 0; j <= highest_assigned_ip; j++) {
-                resultTopology[i][j] = currentlongTopology[i][j];
+                resultTopology[i][j] = currentlongTopology[i][j]; // TODO @freek GOES wrong here because no reqs come in. Thus we only look at our own, and it'll never be symmetric
             }
         }
 
@@ -241,8 +240,8 @@ public class Routing {
                     resultTopology[k][l] = true;
                 }
                 if (resultTopology[k][l] != resultTopology[l][k]) {
-                    resultTopology[k][l] = false;
-                    resultTopology[l][k] = false;
+                    resultTopology[k][l] = true; // TODO @Freek quick hotfix making true here. Should be false, really.
+                    resultTopology[l][k] = true;
                 }
             }
         }
@@ -290,16 +289,16 @@ public class Routing {
                 }
                 if (i == 0 && j > 0) {
                     longTopology[0][j] = shortTopology[j - 1];
-                }
-                if (i > 0 && j < i) {
-                    longTopology[i][j] = longTopology[j][i];
+                    longTopology[j][0] = shortTopology[j - 1];;
                 }
                 if (i == 1 && j > 1) {
                     longTopology[1][j] = shortTopology[j + 1];
+                    longTopology[j][1] = shortTopology[j + 1];
+
                 }
                 if (i == 2 && j > 2) {
                     longTopology[2][j] = shortTopology[j + 2];
-
+                    longTopology[j][2] = shortTopology[j + 2];
                 }
             }
         }
@@ -327,6 +326,7 @@ public class Routing {
         for (int i = 0; i <= highest_assigned_ip; i++) {
             if (i != sourceIP) {
                 longTopology[sourceIP][i] = neighbor_available[i];
+                longTopology[i][sourceIP] = neighbor_available[i];
             }
         }
         // Because it's symmetric: mirror the matrix, and make sure the diagonal is always true
@@ -334,9 +334,6 @@ public class Routing {
             for (int j = 0; j <= highest_assigned_ip; j++) {
                 if (i == j) {
                     longTopology[i][j] = true;
-                }
-                if (i > 0 && j < i) {
-                    longTopology[i][j] = longTopology[j][i];
                 }
             }
         }

@@ -149,6 +149,8 @@ public class MyProtocol {
         setState(State.DISCOVERY);
         routing.highest_assigned_ip = -1;
         routing.sourceIP = -1;
+        routing.shortTopology = new boolean[6];
+        routing.longTopology = new boolean[4][4];
         tiebreaker = new Random().nextInt(1 << 7);
         timer = new Timer(new Random().nextInt(2000 * exponential_backoff + 1) + 8000 * exponential_backoff, new ActionListener() {
             @Override
@@ -358,9 +360,7 @@ public class MyProtocol {
         int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
         SmallPacket final_packet = new SmallPacket(routing.sourceIP, hops, unicast_scheme, true, false, true, true, true);
         packetHandling.sendSmallPacket(final_packet);
-        sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
 
-        startRequestMasterPhase();
     }
 
     private void startPostNegotiationSlavePhase(SmallPacket packet) throws InterruptedException {
@@ -386,8 +386,6 @@ public class MyProtocol {
         // maybe do things here..? but we don't have to forward anything
         int hops = (packet.ackNum & 0b1100000) >> 5;
         int multicastSchemeNumber = packet.ackNum & 0b0011111;
-        routing.shortTopology = new boolean[6];
-        routing.longTopology = new boolean[4][4];
         routing.postNegotiationSlaveforwardingScheme = routing.getMulticastForwardingRouteFromOrder(packet.sourceIP, multicastSchemeNumber);
     }
 
@@ -406,18 +404,7 @@ public class MyProtocol {
 
         }
 
-        Timer timer = new Timer(request_phase_length * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent arg0) {
-                try {
-                    startPostRequestMasterPhase();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-        timer.setRepeats(false); // Only execute once
-        timer.start(); // Go go g
+
     }
 
     public void startRequestSlavePhase() {
@@ -663,11 +650,11 @@ public class MyProtocol {
                 long delay = System.currentTimeMillis() - interferenceDetectionTimer;
                 System.out.println("FREE. Delay since previous: " + delay);
                 detectInterference(delay);
-                return;
+                break;
             case BUSY:
                 System.out.println("BUSY");
                 interferenceDetectionTimer = System.currentTimeMillis();
-                return;
+                break;
             case DATA:
                 System.out.println("DATA");
                 packetHandling.printByteBuffer(bytes,false);
@@ -688,6 +675,7 @@ public class MyProtocol {
             case END:
                 System.out.println("END");
                 System.exit(0);
+                break;
         }
         switch (state) {
             case DISCOVERY:
@@ -784,7 +772,16 @@ public class MyProtocol {
                 }
                 break;
             case POST_NEGOTIATION_MASTER:
-                // we shouldn't receive anything here?
+                if (type == MessageType.FREE) {
+                    Timer timer = new Timer(routing.getMulticastForwardingRoute(routing.sourceIP).size() * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
+                        @Override
+                        public void actionPerformed(ActionEvent arg0) {
+                            startRequestMasterPhase();
+                        }
+                    });
+                    timer.setRepeats(false); // Only execute once
+                    timer.start(); // Go go g
+                }
                 break;
             case POST_NEGOTIATION_SLAVE:
                 if (type == MessageType.DATA_SHORT) {// wait for POST_NEGOTIATION packet, if we got it, go to POST_NEGOTIATION_STRANGER

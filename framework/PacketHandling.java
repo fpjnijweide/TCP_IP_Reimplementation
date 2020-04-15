@@ -126,13 +126,13 @@ public class PacketHandling {
             } else if (bytes.length == 2) {
                 SmallPacket packet = readSmallPacket(bytes);
                 System.out.print("\nHEADER: ");
+                for (byte aByte : bytes) {
+                    System.out.print(String.format("%8s", Integer.toBinaryString(aByte & 0xFF)).replace(' ', '0') + " ");
+                }
                 System.out.print("\nHEADER FLAGS: " + (packet.ackFlag? "ACK ":"") + (packet.request? "REQUEST ":"") + (packet.negotiate? "NEGOTIATION ":"") + (packet.SYN? "SYN ":"") + (packet.broadcast? "BROADCAST ":""));
                 System.out.print("\nSOURCE IP: " + packet.sourceIP);
                 System.out.print("\nDEST IP: " + packet.destIP);
                 System.out.print("\nACK NUM: " + packet.ackNum);
-                for (byte aByte : bytes) {
-                    System.out.print(String.format("%8s", Integer.toBinaryString(aByte & 0xFF)).replace(' ', '0') + " ");
-                }
             } else {
                 BigPacket packet = readBigPacket(bytes);
                 System.out.print("\nHEADER: ");
