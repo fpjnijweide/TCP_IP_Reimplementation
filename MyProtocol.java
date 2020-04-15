@@ -10,6 +10,8 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import static java.lang.Thread.sleep;
+
 /**
 * This is just some example code to show you how to interact 
 * with the server using the provided client and two queues.
@@ -351,8 +353,19 @@ public class MyProtocol{
     private void startNegotiationMasterPhase() throws InterruptedException {
         setState(State.NEGOTIATION_MASTER);
         negotiatedPackets.clear();
-        wait(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT);
-        startPostNegotiationMasterPhase();
+        Timer timer = new Timer(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    startPostNegotiationMasterPhase();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go go!
     }
 
     private void startNegotiationStrangerPhase() throws InterruptedException {
@@ -368,7 +381,7 @@ public class MyProtocol{
                 SmallPacket packet = new SmallPacket(0,0,tiebreaker,false,false,true,false,true);
                 sendSmallPacket(packet);
             } else {
-                wait(SHORT_PACKET_TIMESLOT);
+                sleep(SHORT_PACKET_TIMESLOT);
             }
         }
         startWaitingForTimingStrangerPhase();
@@ -379,7 +392,7 @@ public class MyProtocol{
 
     private void startNegotiationStrangerDonePhase() {
         setState(State.NEGOTIATION_STRANGER_DONE);
-        timer = new Timer(5000, new ActionListener() {
+        timer = new Timer(30000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state==State.NEGOTIATION_STRANGER_DONE) {
@@ -769,7 +782,7 @@ public class MyProtocol{
         SmallPacket first_packet = new SmallPacket(sourceIP, sourceIP, first_packet_ack_nr,true,false,true,false,true);
         sendSmallPacket(first_packet);
 
-        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         List<Integer> received_tiebreakers = new ArrayList<>();
 
         // Make list of all tiebreakers
@@ -795,14 +808,14 @@ public class MyProtocol{
             SmallPacket promotionPacket = new SmallPacket(sourceIP, new_ip, received_tiebreaker | (hops << 5),true,false,true,false,true);
                 sendSmallPacket(promotionPacket);
                 highest_assigned_ip++;
-                wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+                sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         }
         negotiatedPackets.clear();
 
         int unicast_scheme = getUnicastScheme(sourceIP);
         SmallPacket final_packet = new SmallPacket(sourceIP,hops,unicast_scheme,true,false,true,true,true);
         sendSmallPacket(final_packet);
-        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
         startRequestMasterPhase();
     }
@@ -852,14 +865,23 @@ public class MyProtocol{
 
         }
 
-
-        wait(request_phase_length*SHORT_PACKET_TIMESLOT);
-        startPostRequestMasterPhase();
+        Timer timer = new Timer(request_phase_length*SHORT_PACKET_TIMESLOT, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    startPostRequestMasterPhase();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
     }
 
-    public void startRequestSlavePhase() throws InterruptedException {
+    public void startRequestSlavePhase() {
         setState(State.REQUEST_SLAVE);
-        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
+        List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         all_ips.remove(current_master);
         int thisNodesSendTurn = all_ips.get(sourceIP);
         int thisNodesSendTimeslot = thisNodesSendTurn;
@@ -868,8 +890,22 @@ public class MyProtocol{
             thisNodesSendTimeslot += unicastRoutes.get(i).size();
         }
 
-        wait(thisNodesSendTimeslot*SHORT_PACKET_TIMESLOT);
+        Timer timer = new Timer(thisNodesSendTimeslot * SHORT_PACKET_TIMESLOT, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent arg0) {
+                try {
+                    requestSlavePhaseSecondPart();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        timer.setRepeats(false); // Only execute once
+        timer.start(); // Go go g
 
+
+    }
+    public void requestSlavePhaseSecondPart() throws InterruptedException {
         int how_many_timeslots_do_we_want = howManyTimeslotsDoWeWant();
         int bit_1_and_2 = (how_many_timeslots_do_we_want & 0b1100) >> 2;
         boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
@@ -958,9 +994,9 @@ public class MyProtocol{
         List<Integer> route_ips = getMulticastForwardingRoute(sourceIP);
 
         sendSmallPacket(first_packet);
-        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
         sendSmallPacket(second_packet);
-        wait(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
 
         requestPackets.clear();
 
@@ -1443,12 +1479,32 @@ public class MyProtocol{
                                     // You have to forward this time
                                     packet.sourceIP += 1;
                                     sendSmallPacket(packet);
-                                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
-                                    startDataPhase();
+                                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                        @Override
+                                        public void actionPerformed(ActionEvent arg0) {
+                                            try {
+                                                startDataPhase();
+                                            } catch (InterruptedException e) {
+                                                e.printStackTrace();
+                                            }
+                                        }
+                                    });
+                                    timer.setRepeats(false); // Only execute once
+                                    timer.start(); // Go go g
 
                                 } else {
-                                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
-                                    startDataPhase();
+                                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                        @Override
+                                        public void actionPerformed(ActionEvent arg0) {
+                                            try {
+                                                startDataPhase();
+                                            } catch (InterruptedException e) {
+                                                e.printStackTrace();
+                                            }
+                                        }
+                                    });
+                                    timer.setRepeats(false); // Only execute once
+                                    timer.start(); // Go go g
                                 }
                             } catch (InterruptedException e) {
                                 e.printStackTrace();
@@ -1581,6 +1637,13 @@ public class MyProtocol{
 
     }
 
+    private void handleBigPacket(BigPacket bigPacket) {
+
+    }
+
+    private void handleSmallPacket(SmallPacket smallPacket) {
+
+    }
 
 
     private void finalPostNegotiationHandler(SmallPacket packet) {
@@ -1611,12 +1674,24 @@ public class MyProtocol{
                     // You have to forward this time
                     packet.destIP += 1;
                     sendSmallPacket(packet);
-                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
-                    startRequestSlavePhase();
+                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                        @Override
+                        public void actionPerformed(ActionEvent arg0) {
+                            startRequestSlavePhase();
+                        }
+                    });
+                    timer.setRepeats(false); // Only execute once
+                    timer.start(); // Go go g
 
                 } else {
-                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
-                    startRequestSlavePhase();
+                    Timer timer = new Timer((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                        @Override
+                        public void actionPerformed(ActionEvent arg0) {
+                            startRequestSlavePhase();
+                        }
+                    });
+                    timer.setRepeats(false); // Only execute once
+                    timer.start(); // Go go g
                 }
             } catch (InterruptedException e) {
             e.printStackTrace();
