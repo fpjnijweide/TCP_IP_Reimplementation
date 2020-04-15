@@ -31,38 +31,41 @@ public class MyProtocol {
     // The port to connect to. 8954 for the simulation server.
     private static final int SERVER_PORT = 8954;
     // The frequency to use.
-    private static final int frequency = 15400;
+    private static final int frequency = 5400;
+
+    // Buffers of packets for various phases in the access control
     private final List<SmallPacket> receivedNegotiationPackets = new ArrayList<>();
     private final List<SmallPacket> receivedRequestPackets = new ArrayList<>();
     private final List<SmallPacket> forwardedPackets = new ArrayList<>();
-    private boolean alwaysBroadcast = false;
-    List<Integer> timeslotsRequested;
-    List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
-    List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
+
+    private boolean alwaysBroadcast = false; // If the user types ALL in the UI for which IP to send to, it is set to true
+    List<Integer> timeslotsRequested; // Used for storing the timeslots requested per user for sending data
+    List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>(); // Used for storing packets we want to send but when we are in the wrong access control phase
+    List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>(); // Used for storing packets we want to send but when we are in the wrong access control phase
     Timer timer;
     Routing routing;
     PacketHandling packetHandling;
-    private int tiebreaker;
-    private long interferenceDetectionTimer;
+    private int tiebreaker; // Used for negotiating (DHCP). If another user rolls the same tiebreaker number, neither gets an IP.
+    private long interferenceDetectionTimer; // Time the channel was last free is stored here to detect interference
     private int negotiationPhaseMasterLength = 8;
     private int negotiationPhaseStrangerLength;
     private int negotiationPhasesEncountered = 0;
     private int currentMasterNodeIP;
     private int exponentialBackoffFactor = 1;
-    private State state = State.READY;
+    private State state = State.READY; // State is used for access control
     ReliableDelivery reliableDelivery;
-    private int destIP;
+    private int destIP; // What IP you want to send to
 
 
     public MyProtocol(int inputSourceIP) {
-        routing = new Routing();
+        routing = new Routing(); // Object with routing information and methods
         routing.sourceIP = inputSourceIP;
         BlockingQueue<Message> receivedQueue = new LinkedBlockingQueue<>();
         BlockingQueue<Message> sendingQueue = new LinkedBlockingQueue<>();
-        packetHandling = new PacketHandling(sendingQueue);
-        reliableDelivery = new ReliableDelivery(packetHandling);
+        packetHandling = new PacketHandling(sendingQueue); // Object with info and methods for packet assembly and disassembly
+        reliableDelivery = new ReliableDelivery(packetHandling); // Object with info and methods for TCP
 
-        destIP = getDestNode(routing.sourceIP);
+        destIP = getDestNode(routing.sourceIP); // Starts a UI window that asks you where you want to send to
         if (destIP == -1) {
             destIP = 0;
             alwaysBroadcast = true;
@@ -73,7 +76,7 @@ public class MyProtocol {
         // handle sending from stdin from this thread.
         try {
             while (true) {
-                handleInput();
+                handleInput(); // Method for handling input. This thread only does user input, networking happens on other thread
             }
         } catch (InterruptedException | IOException e) {
             System.exit(2);
@@ -102,35 +105,35 @@ public class MyProtocol {
         return destinationNode.equals("ALL")? -1 : Integer.parseInt(destinationNode);
     }
 
-    @SuppressWarnings("ConstantConditions")
     public void handleInput() throws IOException, InterruptedException {
-
+        // Handle user input
         ByteBuffer temp = ByteBuffer.allocate(1024);
         int read;
         read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
         System.out.println(read - 1);
 
         if (read > 0) {
-            ByteBuffer text = ByteBuffer.allocate(read - 1); // jave includes newlines in System.in.read, so -2 to ignore this
-            text.put(temp.array(), 0, read - 1); // java includes newlines in System.in.read, so -2 to ignore this
+            ByteBuffer text = ByteBuffer.allocate(read - 1);
+            text.put(temp.array(), 0, read - 1);
             String textString = new String(text.array(), StandardCharsets.US_ASCII);
-            if (state ==State.READY) {
+            if (state ==State.READY) { // If you did not type DISCOVERY, you are in the standard, non-access control phase
                 switch (textString) {
-                    case "DISCOVERY":
+                    case "DISCOVERY": // If you type DISCOVERY, we go to the discovery phase
                         startDiscoveryPhase(exponentialBackoffFactor);
                         break;
-                    case "DISCOVERYNOW":
+                    case "DISCOVERYNOW": // type this to skip the initial delay and send out the discovery packet instantly
                         startDiscoveryPhase(0);
                         break;
-                    case "SMALLPACKET":
-                        packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
+                    case "SMALLPACKET": // Send out a small packet
+                        packetHandling.sendSmallPacket(new SmallPacket(routing.sourceIP, destIP, 0, false, false, false, false, alwaysBroadcast));
                         break;
-                    default:
+                    default: // If you type something else, deliver
                         reliableDelivery.TCPsend(read, text,routing,packetHandling,destIP,alwaysBroadcast);
                         break;
 
                 }
-            } else {
+            } else { // If you are using medium access control, we do not use TCP
+                // Instead, queue the packets up and send them in the data phase
                 for (int i = 0; i < read - 1; i += 28) {
                     byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
                     System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
@@ -147,6 +150,8 @@ public class MyProtocol {
 
 
     private void startDiscoveryPhase(int exponential_backoff) {
+        // Resets variables, and waits to see if there is an established network nearby. After a while, tries to start a network itself
+        // By sending a discovery packet. If nobody responds to this discovery packet, it is probably okay to start a network.
         setState(State.DISCOVERY);
         routing.highest_assigned_ip = -1;
         routing.sourceIP = -1;
@@ -171,6 +176,7 @@ public class MyProtocol {
     }
 
     private void startSentDiscoveryPhase() throws InterruptedException {
+        // We successfully send a discovery packet. If nobody stops us in the next 2 seconds, we become the master node and start access control.
         SmallPacket packet = new SmallPacket(0, 0, tiebreaker, false, true, true, false, true);
         packetHandling.sendSmallPacket(packet);
         setState(State.SENT_DISCOVERY);
@@ -179,9 +185,9 @@ public class MyProtocol {
             public void actionPerformed(ActionEvent arg0) {
                 if (state == State.SENT_DISCOVERY) {
                     try {
-                        routing.sourceIP = 0;
+                        routing.sourceIP = 0; // We now have an actual IP, 0! -1 is the IP assigned to nodes that are not in any network.
                         routing.highest_assigned_ip = 0;
-                        routing.shortTopology = new boolean[6];
+                        routing.shortTopology = new boolean[6]; // Reset network topology knowledge because we just started a new one.
                         routing.longTopology = new boolean[4][4];
                         startTimingMasterPhase(8);
                     } catch (InterruptedException e) {
