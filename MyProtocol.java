@@ -32,7 +32,7 @@ public class MyProtocol{
     int highest_assigned_ip = -1;
     private List<Integer> postNegotiationSlaveforwardingScheme;
     private List<Integer> unicastRouteToMaster;
-    List<List<Integer>> unicastRoutes;
+    List<List<Integer>> unicastRoutes = new ArrayList<>();
     private int current_master;
     private List<SmallPacket> requestPackets = new ArrayList<>();
     private List<SmallPacket> forwardedPackets = new ArrayList<>();
@@ -759,6 +759,7 @@ public class MyProtocol{
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0,1,2,3));
         int[] unicast_route_number = new int[3];
         all_ips.remove(sourceIP);
+        unicastRoutes.clear();
         for (int i = 0; i < all_ips.size(); i++) {
             int destinationIP = all_ips.get(i);
             if (destinationIP<=highest_assigned_ip) {
@@ -767,6 +768,7 @@ public class MyProtocol{
                 relevant_ips.remove(destinationIP);
 
                 List<Integer> unicastRoute = getUnicastForwardingRoute(destinationIP, sourceIP);
+                unicastRoutes.add(unicastRoute);
                 int first_hop = unicastRoute.size() > 0 ? unicastRoute.get(0) : -1;
                 int second_hop = unicastRoute.size() > 1 ? unicastRoute.get(1) : -1;
 
@@ -845,7 +847,7 @@ public class MyProtocol{
         if (hops==0) updateNeighbors(packet.sourceIP);
 
 
-        if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+        if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
             // You have to forward this time
             packet.ackNum += (1 << 5);
             sendSmallPacket(packet);
@@ -1035,7 +1037,8 @@ public class MyProtocol{
         timeslotsRequested.set(0,first_person_timeslots);
         timeslotsRequested.set(1,second_person_first_bit);
 
-        if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+        if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+
             // You have to forward this time
             // Source IP is not included here. No forwarding possible.
             // TODO maybe use forwardedPackets here? make sure to clear at start of next phase..
@@ -1403,7 +1406,8 @@ public class MyProtocol{
                                 highest_assigned_ip = packet.destIP;
                                 int hops = packet.ackNum >> 5;
                                 if (hops==0) updateNeighbors(packet.sourceIP);
-                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+
                                     // You have to forward this time
                                     // TODO maybe use forwardedPackets here? make sure to clear at start of next phase.
                                     packet.ackNum += (1 << 5);
@@ -1521,7 +1525,8 @@ public class MyProtocol{
 
                             int hops = packet.sourceIP;
                             try {
-                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+
                                     // You have to forward this time
                                     packet.sourceIP += 1;
                                     sendSmallPacket(packet);
@@ -1710,13 +1715,13 @@ public class MyProtocol{
                 ip_list.remove(i); // this will remove by index, not element
                 int order = route_numbers[i];
                 List<Integer> unicastRoute = decodePermutationOfTwo(order, ip_list);
-                unicastRoutes.set(i,unicastRoute);
+                unicastRoutes.add(unicastRoute);
             }
             unicastRouteToMaster = unicastRoutes.get(all_ips.indexOf(sourceIP));
 
             int hops = packet.destIP;
             try {
-                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                if (postNegotiationSlaveforwardingScheme.size()-1 >= hops && postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
                     // You have to forward this time
                     packet.destIP += 1;
                     sendSmallPacket(packet);
