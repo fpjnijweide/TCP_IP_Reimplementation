@@ -47,7 +47,7 @@ public class MyProtocol{
         NEGOTIATION_MASTER,
         READY,
         TIMING_SLAVE,
-        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE;
+        TIMING_MASTER, TIMING_STRANGER, NEGOTIATION_STRANGER, POST_NEGOTIATION_MASTER, WAITING_FOR_TIMING_STRANGER, NEGOTIATION_STRANGER_DONE, POST_NEGOTIATION_SLAVE, POST_NEGOTIATION_STRANGER, REQUEST_SLAVE, REQUEST_MASTER, POST_REQUEST_MASTER, POST_REQUEST_SLAVE, DATA_PHASE;
     }
 
     public class SmallPacket{
@@ -609,7 +609,7 @@ public class MyProtocol{
 
         requestPackets.clear();
 
-        startDataPhase(timeslotsRequested);
+        startDataPhase();
     }
 
 
@@ -640,13 +640,29 @@ public class MyProtocol{
         }
     }
 
-    private void startDataPhase(List<Integer> timeslotsRequested) {
-        // TODO change state
-        // TODO data things
-        // TODO receiving side
+    private void startDataPhase() throws InterruptedException {
+        setState(State.DATA_PHASE);
+        int delay_until_we_send = 0;
+        int delay_after_we_send = 0;
 
+        for (int i = 0; i < sourceIP; i++) {
+            delay_until_we_send += timeslotsRequested.get(i);
+        }
+        for (int i = sourceIP+1; i <= highest_assigned_ip; i++) {
+            delay_after_we_send += timeslotsRequested.get(i);
+        }
+
+        wait(delay_until_we_send*LONG_PACKET_TIMESLOT);
+
+        // TODO @freek send data
+
+        wait(delay_after_we_send*LONG_PACKET_TIMESLOT);
         int next_master = (current_master + 1) % (highest_assigned_ip + 1);
-        // TODO if next master is us, change state properly
+        if (next_master == sourceIP) {
+            startTimingMasterPhase(0);
+        } else {
+            startTimingSlavePhase(0,next_master);
+        }
     }
 
     public byte[] fillSmallPacket(SmallPacket packet) {
@@ -1045,11 +1061,11 @@ public class MyProtocol{
                                     packet.sourceIP += 1;
                                     sendSmallPacket(packet);
                                     wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
-                                    startDataPhase(timeslotsRequested);
+                                    startDataPhase();
 
                                 } else {
                                     wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
-                                    startDataPhase(timeslotsRequested);
+                                    startDataPhase();
                                 }
                             } catch (InterruptedException e) {
                                 e.printStackTrace();
@@ -1058,6 +1074,9 @@ public class MyProtocol{
                 }
 
 
+                break;
+            case DATA_PHASE:
+                // TODO @FREEK IMPLEMENT
                 break;
             case READY:
                 switch (type) {
