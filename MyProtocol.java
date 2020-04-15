@@ -231,7 +231,7 @@ public class MyProtocol{
         toSend.put(packetBytes, 0, 32); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA, toSend);
         sending = true;
-        messagesToSend.add(msg);
+        messagesToSend.add(0,msg);
         sendingQueue.put(msg);
     }
 
@@ -241,7 +241,7 @@ public class MyProtocol{
         toSend.put( packetBytes, 0, 2); // jave includes newlines in System.in.read, so -2 to ignore this
         Message msg = new Message(MessageType.DATA_SHORT, toSend);
         sending = true;
-        messagesToSend.add(msg);
+        messagesToSend.add(0,msg);
         sendingQueue.put(msg);
     }
 
@@ -548,7 +548,7 @@ public class MyProtocol{
 
         wait(thisNodesSendTimeslot*SHORT_PACKET_TIMESLOT);
 
-        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
+        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want (just use messagesToSend?)
         int bit_1_and_2 = (how_many_timeslots_do_we_want & 0b1100) >> 2;
         boolean bit_3 = ((how_many_timeslots_do_we_want & 0b0010) >> 1) == 1;
         boolean bit_4 = (how_many_timeslots_do_we_want & 0b0001) == 1;
@@ -574,7 +574,7 @@ public class MyProtocol{
 
     private void startPostRequestMasterPhase() throws InterruptedException {
         setState(State.POST_REQUEST_MASTER);
-        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want
+        int how_many_timeslots_do_we_want = 4; // TODO integrate with Martijn to figure out how many timeslots we want (just use messagesToSend?)
 
         timeslotsRequested = new ArrayList<>();
         for (SmallPacket packet: requestPackets) {
@@ -1037,8 +1037,23 @@ public class MyProtocol{
                             timeslotsRequested.set(1,second_person_requested_timeslot);
                             timeslotsRequested.set(2,third_person_requested_timeslot);
                             timeslotsRequested.set(3,fourth_person_requested_timeslot);
-                            // TODO @Freek forward
-                            // TODO @Freek change state when time is right: on the receiving side (calculate multicast hops)
+
+                            int hops = packet.sourceIP;
+                            try {
+                                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                                    // You have to forward this time
+                                    packet.sourceIP += 1;
+                                    sendSmallPacket(packet);
+                                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
+                                    startDataPhase(timeslotsRequested);
+
+                                } else {
+                                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
+                                    startDataPhase(timeslotsRequested);
+                                }
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
                         }
                 }
 
@@ -1119,32 +1134,22 @@ public class MyProtocol{
             unicastRouteToMaster = unicastRoutes.get(all_ips.indexOf(sourceIP));
 
             int hops = packet.destIP;
-            if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
-                // You have to forward this time
-                packet.destIP += 1;
-                try {
-                    sendSmallPacket(packet);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                try {
-                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-
-            } else {
-                try {
-                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
             try {
-                startRequestSlavePhase();
+                if (postNegotiationSlaveforwardingScheme.get(hops) == sourceIP) {
+                    // You have to forward this time
+                    packet.destIP += 1;
+                    sendSmallPacket(packet);
+                    wait((postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT);
+                    startRequestSlavePhase();
+
+                } else {
+                    wait((postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT);
+                    startRequestSlavePhase();
+                }
             } catch (InterruptedException e) {
-                e.printStackTrace();
+            e.printStackTrace();
             }
+
 
         }
     }
