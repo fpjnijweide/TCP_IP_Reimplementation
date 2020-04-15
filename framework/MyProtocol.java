@@ -42,11 +42,11 @@ public class MyProtocol {
     PacketHandling packetHandling;
     private int tiebreaker;
     private long timeMilli;
-    private int negotiation_phase_length = 8;
-    private int negotiation_phase_stranger_length;
-    private int negotiation_phases_encountered = 0;
-    private int current_master;
-    private int exponential_backoff = 1;
+    private int negotiationPhaseMasterLength = 8;
+    private int negotiationPhaseStrangerLength;
+    private int negotiationPhasesEncountered = 0;
+    private int currentMaster;
+    private int exponentialBackoff = 1;
     private State state = State.READY;
 
     public MyProtocol(int inputSourceIP) {
@@ -99,7 +99,7 @@ public class MyProtocol {
             String textString = new String(text.array(), StandardCharsets.US_ASCII);
             switch (textString) {
                 case "DISCOVERY":
-                    startDiscoveryPhase(exponential_backoff);
+                    startDiscoveryPhase(exponentialBackoff);
                     break;
                 case "DISCOVERYNOW":
                     startDiscoveryPhase(0);
@@ -182,33 +182,33 @@ public class MyProtocol {
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
-        current_master = routing.sourceIP;
+        currentMaster = routing.sourceIP;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
-            this.negotiation_phase_length = new_negotiation_phase_length;
+            this.negotiationPhaseMasterLength = new_negotiation_phase_length;
         }
-        exponential_backoff = 1;
-        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
-            this.negotiation_phase_length /= 2;
+        exponentialBackoff = 1;
+        if (new_negotiation_phase_length == 0 && this.negotiationPhaseMasterLength > 1) { // If we are using an old phase length number that is above 1
+            this.negotiationPhaseMasterLength /= 2;
         }
 
-        SmallPacket packet = new SmallPacket(routing.sourceIP, 0, this.negotiation_phase_length, false, false, false, true, true);
+        SmallPacket packet = new SmallPacket(routing.sourceIP, 0, this.negotiationPhaseMasterLength, false, false, false, true, true);
         packetHandling.sendSmallPacket(packet);
         startNegotiationMasterPhase();
     }
 
     private void startTimingSlavePhase(int new_negotiation_phase_length, int new_master_ip) {
-        if (new_negotiation_phase_length == 0 && this.negotiation_phase_length > 1) { // If we are using an old phase length number that is above 1
-            this.negotiation_phase_length /= 2;
+        if (new_negotiation_phase_length == 0 && this.negotiationPhaseMasterLength > 1) { // If we are using an old phase length number that is above 1
+            this.negotiationPhaseMasterLength /= 2;
         }
         setState(State.TIMING_SLAVE);
-        exponential_backoff = 1;
+        exponentialBackoff = 1;
         timer = new Timer(10000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 if (state == State.TIMING_SLAVE) {
-                    exponential_backoff = 1;
-                    startDiscoveryPhase(exponential_backoff);
+                    exponentialBackoff = 1;
+                    startDiscoveryPhase(exponentialBackoff);
 
                 }
             }
@@ -220,8 +220,8 @@ public class MyProtocol {
 
     private void startTimingStrangerPhase(int negotiation_length) {
         setState(State.TIMING_STRANGER);
-        exponential_backoff = 1;
-        this.negotiation_phase_stranger_length = negotiation_length;
+        exponentialBackoff = 1;
+        this.negotiationPhaseStrangerLength = negotiation_length;
         try {
             startNegotiationStrangerPhase();
         } catch (InterruptedException e) {
@@ -232,13 +232,13 @@ public class MyProtocol {
 
     private void startWaitingForTimingStrangerPhase() {
         setState(State.WAITING_FOR_TIMING_STRANGER);
-        exponential_backoff = 1;
+        exponentialBackoff = 1;
         timer = new Timer(20000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) { // TODO welke delay
                 if (state == State.WAITING_FOR_TIMING_STRANGER) {
-                    exponential_backoff = 1;
-                    startDiscoveryPhase(exponential_backoff);
+                    exponentialBackoff = 1;
+                    startDiscoveryPhase(exponentialBackoff);
                 }
             }
         });
@@ -250,7 +250,7 @@ public class MyProtocol {
     private void startNegotiationMasterPhase() {
         setState(State.NEGOTIATION_MASTER);
         negotiatedPackets.clear();
-        Timer timer = new Timer(this.negotiation_phase_length * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
+        Timer timer = new Timer(this.negotiationPhaseMasterLength * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -268,12 +268,12 @@ public class MyProtocol {
     private void startNegotiationStrangerPhase() throws InterruptedException {
         tiebreaker = new Random().nextInt(1 << 5);
         setState(State.NEGOTIATION_STRANGER);
-        this.negotiation_phases_encountered++;
-        for (int i = 0; i < this.negotiation_phase_stranger_length; i++) {
+        this.negotiationPhasesEncountered++;
+        for (int i = 0; i < this.negotiationPhaseStrangerLength; i++) {
             if (state != State.NEGOTIATION_STRANGER) {
                 return;
             }
-            float roll = new Random().nextFloat() * (1 + ((float) this.negotiation_phases_encountered - 1) / 10);
+            float roll = new Random().nextFloat() * (1 + ((float) this.negotiationPhasesEncountered - 1) / 10);
             if (roll > 0.25) {
                 SmallPacket packet = new SmallPacket(0, 0, tiebreaker, false, false, true, false, true);
                 packetHandling.sendSmallPacket(packet);
@@ -384,7 +384,7 @@ public class MyProtocol {
         setState(State.REQUEST_MASTER);
         requestPackets.clear();
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-        all_ips.remove(current_master);
+        all_ips.remove(currentMaster);
         int request_phase_length = 0;
 
         for (int i = routing.sourceIP; i < all_ips.size(); i++) {
@@ -412,7 +412,7 @@ public class MyProtocol {
     public void startRequestSlavePhase() {
         setState(State.REQUEST_SLAVE);
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-        all_ips.remove(current_master);
+        all_ips.remove(currentMaster);
         int thisNodesSendTurn = all_ips.get(routing.sourceIP);
         int thisNodesSendTimeslot = thisNodesSendTurn;
 
@@ -635,7 +635,7 @@ public class MyProtocol {
     }
 
     public void dataPhaseThirdPart() throws InterruptedException {
-        int next_master = (current_master + 1) % (routing.highest_assigned_ip + 1);
+        int next_master = (currentMaster + 1) % (routing.highest_assigned_ip + 1);
         if (next_master == routing.sourceIP) {
             startTimingMasterPhase(0);
         } else {
@@ -691,8 +691,8 @@ public class MyProtocol {
 
                     if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                         timer.stop();
-                        exponential_backoff *= 2;
-                        startDiscoveryPhase(exponential_backoff);
+                        exponentialBackoff *= 2;
+                        startDiscoveryPhase(exponentialBackoff);
                     } else if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) { // timing master packet
                         timer.stop();
                         startTimingStrangerPhase(packet.ackNum);
@@ -709,8 +709,8 @@ public class MyProtocol {
 
                     if ((other_discovery_packet && (tiebreaker <= packet.ackNum)) || (discovery_denied_packet && packet.ackNum == tiebreaker)) {
                         timer.stop();
-                        exponential_backoff *= 2;
-                        startDiscoveryPhase(exponential_backoff);
+                        exponentialBackoff *= 2;
+                        startDiscoveryPhase(exponentialBackoff);
                     }
 
                     if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
@@ -831,8 +831,8 @@ public class MyProtocol {
                             if ((packet.ackNum & 0b0011111) == tiebreaker) {
                                 routing.sourceIP = packet.destIP;
                                 routing.highest_assigned_ip = packet.destIP;
-                                current_master = packet.sourceIP;
-                                routing.updateNeighbors(current_master);
+                                currentMaster = packet.sourceIP;
+                                routing.updateNeighbors(currentMaster);
                             }
 
                             int hops = packet.ackNum >> 5;
@@ -876,7 +876,7 @@ public class MyProtocol {
                     printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-                    all_ips.remove(current_master);
+                    all_ips.remove(currentMaster);
                     if (!packet.broadcast && !packet.negotiate && packet.request) {
                         // If we are in the route of the person that sent this packet
 
@@ -1081,7 +1081,7 @@ public class MyProtocol {
         if (packet.SYN) {
             List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
             all_ips.remove(packet.sourceIP);
-            current_master = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
+            currentMaster = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
             // 124 DEC is 444 PENT
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5, (packet.ackNum / 5) % 5, packet.ackNum % 5};
 
@@ -1154,8 +1154,8 @@ public class MyProtocol {
                         // Our discovery packet had interference
                         packetHandling.messagesToSend.remove(0);
                         timer.stop();
-                        exponential_backoff *= 2;
-                        startDiscoveryPhase(exponential_backoff);
+                        exponentialBackoff *= 2;
+                        startDiscoveryPhase(exponentialBackoff);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
                         packetHandling.messagesToSend.remove(0);
@@ -1164,7 +1164,7 @@ public class MyProtocol {
                         // Timing master packet. Rebroadcast!
                         try {
                             timer.stop();
-                            startTimingMasterPhase(negotiation_phase_length);
+                            startTimingMasterPhase(negotiationPhaseMasterLength);
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
