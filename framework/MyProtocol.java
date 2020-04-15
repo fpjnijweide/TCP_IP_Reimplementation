@@ -31,8 +31,8 @@ public class MyProtocol {
     private static final int SERVER_PORT = 8954;
     // The frequency to use.
     private static final int frequency = 15400;
-    private final List<SmallPacket> negotiatedPackets = new ArrayList<>();
-    private final List<SmallPacket> requestPackets = new ArrayList<>();
+    private final List<SmallPacket> receivedNegotiationPackets = new ArrayList<>();
+    private final List<SmallPacket> receivedRequestPackets = new ArrayList<>();
     private final List<SmallPacket> forwardedPackets = new ArrayList<>();
     List<Integer> timeslotsRequested;
     List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
@@ -41,12 +41,12 @@ public class MyProtocol {
     Routing routing;
     PacketHandling packetHandling;
     private int tiebreaker;
-    private long timeMilli;
+    private long interferenceDetectionTimer;
     private int negotiationPhaseMasterLength = 8;
     private int negotiationPhaseStrangerLength;
     private int negotiationPhasesEncountered = 0;
-    private int currentMaster;
-    private int exponentialBackoff = 1;
+    private int currentMasterNodeIP;
+    private int exponentialBackoffFactor = 1;
     private State state = State.READY;
 
     public MyProtocol(int inputSourceIP) {
@@ -98,7 +98,7 @@ public class MyProtocol {
             if (state ==State.READY) {
                 switch (textString) {
                     case "DISCOVERY":
-                        startDiscoveryPhase(exponentialBackoff);
+                        startDiscoveryPhase(exponentialBackoffFactor);
                         break;
                     case "DISCOVERYNOW":
                         startDiscoveryPhase(0);
@@ -193,12 +193,12 @@ public class MyProtocol {
     }
 
     private void startTimingMasterPhase(int new_negotiation_phase_length) throws InterruptedException {
-        currentMaster = routing.sourceIP;
+        currentMasterNodeIP = routing.sourceIP;
         setState(State.TIMING_MASTER);
         if (new_negotiation_phase_length > 0) {
             this.negotiationPhaseMasterLength = new_negotiation_phase_length;
         }
-        exponentialBackoff = 1;
+        exponentialBackoffFactor = 1;
         if (new_negotiation_phase_length == 0 && this.negotiationPhaseMasterLength > 1) { // If we are using an old phase length number that is above 1
             this.negotiationPhaseMasterLength /= 2;
         }
@@ -213,13 +213,13 @@ public class MyProtocol {
             this.negotiationPhaseMasterLength /= 2;
         }
         setState(State.TIMING_SLAVE);
-        exponentialBackoff = 1;
+        exponentialBackoffFactor = 1;
         timer = new Timer(10000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state == State.TIMING_SLAVE) {
-                    exponentialBackoff = 1;
-                    startDiscoveryPhase(exponentialBackoff);
+                    exponentialBackoffFactor = 1;
+                    startDiscoveryPhase(exponentialBackoffFactor);
 
                 }
             }
@@ -231,7 +231,7 @@ public class MyProtocol {
 
     private void startTimingStrangerPhase(int negotiation_length) {
         setState(State.TIMING_STRANGER);
-        exponentialBackoff = 1;
+        exponentialBackoffFactor = 1;
         this.negotiationPhaseStrangerLength = negotiation_length;
         try {
             startNegotiationStrangerPhase();
@@ -243,13 +243,13 @@ public class MyProtocol {
 
     private void startWaitingForTimingStrangerPhase() {
         setState(State.WAITING_FOR_TIMING_STRANGER);
-        exponentialBackoff = 1;
+        exponentialBackoffFactor = 1;
         timer = new Timer(20000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 if (state == State.WAITING_FOR_TIMING_STRANGER) {
-                    exponentialBackoff = 1;
-                    startDiscoveryPhase(exponentialBackoff);
+                    exponentialBackoffFactor = 1;
+                    startDiscoveryPhase(exponentialBackoffFactor);
                 }
             }
         });
@@ -260,7 +260,7 @@ public class MyProtocol {
 
     private void startNegotiationMasterPhase() {
         setState(State.NEGOTIATION_MASTER);
-        negotiatedPackets.clear();
+        receivedNegotiationPackets.clear();
         Timer timer = new Timer(this.negotiationPhaseMasterLength * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
@@ -327,7 +327,7 @@ public class MyProtocol {
         List<Integer> received_tiebreakers = new ArrayList<>();
 
         // Make list of all tiebreakers
-        for (SmallPacket negotiation_packet : negotiatedPackets) {
+        for (SmallPacket negotiation_packet : receivedNegotiationPackets) {
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
             received_tiebreakers.add(received_tiebreaker);
         }
@@ -337,13 +337,13 @@ public class MyProtocol {
         for (int i = 0; i < received_tiebreakers.size(); i++) {
             int current_tiebreaker = received_tiebreakers.get(i);
             if (Collections.frequency(received_tiebreakers, current_tiebreaker) > 1) {
-                toRemove.add(negotiatedPackets.get(i));
+                toRemove.add(receivedNegotiationPackets.get(i));
             }
         }
 
-        negotiatedPackets.removeAll(toRemove);
+        receivedNegotiationPackets.removeAll(toRemove);
 
-        for (SmallPacket negotiation_packet : negotiatedPackets) {
+        for (SmallPacket negotiation_packet : receivedNegotiationPackets) {
             int new_ip = routing.highest_assigned_ip + 1;
             int received_tiebreaker = (negotiation_packet.ackNum & 0b0011111);
 
@@ -353,7 +353,7 @@ public class MyProtocol {
             routing.updateNeighbors(new_ip);
             sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
         }
-        negotiatedPackets.clear();
+        receivedNegotiationPackets.clear();
 
         int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
         SmallPacket final_packet = new SmallPacket(routing.sourceIP, hops, unicast_scheme, true, false, true, true, true);
@@ -393,9 +393,9 @@ public class MyProtocol {
 
     public void startRequestMasterPhase() {
         setState(State.REQUEST_MASTER);
-        requestPackets.clear();
+        receivedRequestPackets.clear();
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-        all_ips.remove(currentMaster);
+        all_ips.remove(currentMasterNodeIP);
         int request_phase_length = 0;
 
         for (int i = routing.sourceIP; i < all_ips.size(); i++) {
@@ -423,7 +423,7 @@ public class MyProtocol {
     public void startRequestSlavePhase() {
         setState(State.REQUEST_SLAVE);
         List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-        all_ips.remove(currentMaster);
+        all_ips.remove(currentMasterNodeIP);
         int thisNodesSendTurn = all_ips.get(routing.sourceIP);
         int thisNodesSendTimeslot = thisNodesSendTurn;
 
@@ -504,7 +504,7 @@ public class MyProtocol {
         List<Integer> topologyNumbers = new ArrayList<>();
 
         timeslotsRequested = new ArrayList<>();
-        for (SmallPacket packet : requestPackets) {
+        for (SmallPacket packet : receivedRequestPackets) {
             int timeslots = (packet.destIP << 2) | ((packet.ackFlag ? 1 : 0) << 1) | (packet.SYN ? 1 : 0);
             timeslotsRequested.add(timeslots);
             int topologyNumber = packet.ackNum & 0b111111;
@@ -541,7 +541,7 @@ public class MyProtocol {
         packetHandling.sendSmallPacket(second_packet);
         sleep(route_ips.size() * packetHandling.SHORT_PACKET_TIMESLOT);
 
-        requestPackets.clear();
+        receivedRequestPackets.clear();
 
         startDataPhase();
     }
@@ -645,7 +645,7 @@ public class MyProtocol {
     }
 
     public void dataPhaseThirdPart() throws InterruptedException {
-        int next_master = (currentMaster + 1) % (routing.highest_assigned_ip + 1);
+        int next_master = (currentMasterNodeIP + 1) % (routing.highest_assigned_ip + 1);
         if (next_master == routing.sourceIP) {
             startTimingMasterPhase(0);
         } else {
@@ -683,13 +683,13 @@ public class MyProtocol {
         }
         switch (type) {
             case FREE:
-                long delay = System.currentTimeMillis() - timeMilli;
+                long delay = System.currentTimeMillis() - interferenceDetectionTimer;
                 System.out.println("FREE. Delay since previous: " + delay);
                 detectInterference(delay);
                 return;
             case BUSY:
                 System.out.println("BUSY");
-                timeMilli = System.currentTimeMillis();
+                interferenceDetectionTimer = System.currentTimeMillis();
                 return;
         }
         switch (state) {
@@ -701,8 +701,8 @@ public class MyProtocol {
 
                     if (packet.broadcast && packet.negotiate && packet.request && !packet.ackFlag) { // another discovery packet
                         timer.stop();
-                        exponentialBackoff *= 2;
-                        startDiscoveryPhase(exponentialBackoff);
+                        exponentialBackoffFactor *= 2;
+                        startDiscoveryPhase(exponentialBackoffFactor);
                     } else if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) { // timing master packet
                         timer.stop();
                         startTimingStrangerPhase(packet.ackNum);
@@ -719,8 +719,8 @@ public class MyProtocol {
 
                     if ((other_discovery_packet && (tiebreaker <= packet.ackNum)) || (discovery_denied_packet && packet.ackNum == tiebreaker)) {
                         timer.stop();
-                        exponentialBackoff *= 2;
-                        startDiscoveryPhase(exponentialBackoff);
+                        exponentialBackoffFactor *= 2;
+                        startDiscoveryPhase(exponentialBackoffFactor);
                     }
 
                     if (!packet.negotiate && !packet.request && packet.broadcast && packet.SYN) {
@@ -758,7 +758,7 @@ public class MyProtocol {
                     printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (packet.broadcast && packet.negotiate && !packet.ackFlag && !packet.request) {
-                        negotiatedPackets.add(packet);
+                        receivedNegotiationPackets.add(packet);
                     }
                 }
 
@@ -841,8 +841,8 @@ public class MyProtocol {
                             if ((packet.ackNum & 0b0011111) == tiebreaker) {
                                 routing.sourceIP = packet.destIP;
                                 routing.highest_assigned_ip = packet.destIP;
-                                currentMaster = packet.sourceIP;
-                                routing.updateNeighbors(currentMaster);
+                                currentMasterNodeIP = packet.sourceIP;
+                                routing.updateNeighbors(currentMasterNodeIP);
                             }
 
                             int hops = packet.ackNum >> 5;
@@ -865,7 +865,7 @@ public class MyProtocol {
                     printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     if (!packet.broadcast && !packet.negotiate && packet.request) {
-                        requestPackets.add(packet);
+                        receivedRequestPackets.add(packet);
                     }
                 }
                 break;
@@ -875,7 +875,7 @@ public class MyProtocol {
                     printByteBuffer(bytes, false); //Just print the data
                     SmallPacket packet = packetHandling.readSmallPacket(bytes);
                     List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
-                    all_ips.remove(currentMaster);
+                    all_ips.remove(currentMasterNodeIP);
                     if (!packet.broadcast && !packet.negotiate && packet.request) {
                         // If we are in the route of the person that sent this packet
 
@@ -1080,7 +1080,7 @@ public class MyProtocol {
         if (packet.SYN) {
             List<Integer> all_ips = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
             all_ips.remove(packet.sourceIP);
-            currentMaster = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
+            currentMasterNodeIP = packet.sourceIP; // TODO set this somewhere else where it makes more sense?
             // 124 DEC is 444 PENT
             int[] route_numbers = new int[]{(packet.ackNum / 25) % 5, (packet.ackNum / 5) % 5, packet.ackNum % 5};
 
@@ -1159,8 +1159,8 @@ public class MyProtocol {
                         // Our discovery packet had interference
                         packetHandling.messagesJustSent.clear();
                         timer.stop();
-                        exponentialBackoff *= 2;
-                        startDiscoveryPhase(exponentialBackoff);
+                        exponentialBackoffFactor *= 2;
+                        startDiscoveryPhase(exponentialBackoffFactor);
                     } else if (!packet.negotiate && !packet.request && packet.ackFlag) {
                         // ACK packet. Get rid of it
                         packetHandling.messagesJustSent.clear();
