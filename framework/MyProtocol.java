@@ -23,12 +23,18 @@ import static java.lang.Thread.sleep;
 
 
 public class MyProtocol{
+    // The host to connect to. Set this to localhost when using the audio interface tool.
+    private static String SERVER_IP = "netsys2.ewi.utwente.nl"; //"127.0.0.1";
+    // The port to connect to. 8954 for the simulation server.
+    private static int SERVER_PORT = 8954;
+    // The frequency to use.
+    private static int frequency = 5400;
+    private BlockingQueue<Message> receivedQueue;
+    private BlockingQueue<Message> sendingQueue;
+
     private int tiebreaker;
-    private Date date = new Date();
     private long timeMilli;
     private int negotiation_phase_length = 8;
-    public int SHORT_PACKET_TIMESLOT = 260;
-    public int LONG_PACKET_TIMESLOT = 1510;
     private int negotiation_phase_stranger_length;
     private int negotiation_phases_encountered = 0;
     private List<SmallPacket> negotiatedPackets = new ArrayList<>();
@@ -36,123 +42,81 @@ public class MyProtocol{
     private List<SmallPacket> requestPackets = new ArrayList<>();
     private List<SmallPacket> forwardedPackets = new ArrayList<>();
     List<Integer> timeslotsRequested;
-
-    // The host to connect to. Set this to localhost when using the audio interface tool.
-    private static String SERVER_IP = "netsys2.ewi.utwente.nl"; //"127.0.0.1";
-    // The port to connect to. 8954 for the simulation server.
-    private static int SERVER_PORT = 8954;
-    // The frequency to use.
-    private static int frequency = 5400;
     private int exponential_backoff = 1;
     private State state = State.READY;
-
-    private BlockingQueue<Message> receivedQueue;
-    private BlockingQueue<Message> sendingQueue;
-
-    private boolean sending = false;
-
     List<BigPacket> dataPhaseBigPacketBuffer = new ArrayList<>();
     List<SmallPacket> dataPhaseSmallPacketBuffer = new ArrayList<>();
-    Routing routing = new Routing();
-    PacketHandling packetHandling;
-
     Timer timer;
 
-
-    public enum State{
-        NULL,
-        READY,
-
-        DISCOVERY,
-        SENT_DISCOVERY,
-        NEGOTIATION_MASTER,
-        TIMING_SLAVE,
-        TIMING_MASTER,
-        TIMING_STRANGER,
-        NEGOTIATION_STRANGER,
-        POST_NEGOTIATION_MASTER,
-        WAITING_FOR_TIMING_STRANGER,
-        NEGOTIATION_STRANGER_DONE,
-        POST_NEGOTIATION_SLAVE,
-        POST_NEGOTIATION_STRANGER,
-        REQUEST_SLAVE,
-        REQUEST_MASTER,
-        POST_REQUEST_MASTER,
-        POST_REQUEST_SLAVE,
-        DATA_PHASE;
-    }
-
+    Routing routing;
+    PacketHandling packetHandling;
 
     public void setState(State state) {
         this.state = state;
         System.out.println("NEW STATE: " +state.toString());
     }
 
-
-
     public MyProtocol(String server_ip, int server_port, int frequency, int inputSourceIP){
+        routing = new Routing();
         routing.sourceIP = inputSourceIP;
-        receivedQueue = new LinkedBlockingQueue<Message>();
-        sendingQueue = new LinkedBlockingQueue<Message>();
-
+        receivedQueue = new LinkedBlockingQueue<>();
+        sendingQueue = new LinkedBlockingQueue<>();
+        packetHandling = new PacketHandling(sendingQueue);
 
         new Client(SERVER_IP, SERVER_PORT, frequency, receivedQueue, sendingQueue); // Give the client the Queues to use
-
         new receiveThread(receivedQueue).start(); // Start thread to handle received messages!
-
-         packetHandling = new PacketHandling(sendingQueue);
-
         // handle sending from stdin from this thread.
         try{
-            ByteBuffer temp = ByteBuffer.allocate(1024);
-            int read = 0;
             while(true){
-                read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
-                System.out.println(read-1);
+                handleInput();
+            }
+        } catch (InterruptedException | IOException e){
+            System.exit(2);
+        }
+    }
 
-                if (state==State.NULL) { // TODO actually use states here
-                    System.out.println("Can't send messages while negotiating");
-                } else if(read > 0){
-                    ByteBuffer text = ByteBuffer.allocate(read-1); // jave includes newlines in System.in.read, so -2 to ignore this
-                    text.put( temp.array(), 0, read-1 ); // java includes newlines in System.in.read, so -2 to ignore this
-                    String textString = new String(text.array(), StandardCharsets.US_ASCII);
-                    if (textString.equals("DISCOVERY")){
-                        startDiscoveryPhase(exponential_backoff);
-                    } else if (textString.equals("DISCOVERYNOW")) {
-                        startDiscoveryPhase(0);
-                    } else if (textString.equals("SMALLPACKET")) {
-                        packetHandling.sendSmallPacket(new SmallPacket(0,0,0,false,false,false,false,false));
-                    } else {
-                        for (int i = 0; i < read-1; i+=28) {
-                            byte[] partial_text = read-1-i>28? new byte[28] : new byte[read-1-i];
-                            System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
+    public void handleInput() throws IOException, InterruptedException {
+        ByteBuffer temp = ByteBuffer.allocate(1024);
+        int read = 0;
+        read = System.in.read(temp.array()); // Get data from stdin, hit enter to send!
+        System.out.println(read-1);
+
+        if (state==State.NULL) { // TODO actually use states here
+            System.out.println("Can't send messages while negotiating");
+        } else if(read > 0) {
+            ByteBuffer text = ByteBuffer.allocate(read - 1); // jave includes newlines in System.in.read, so -2 to ignore this
+            text.put(temp.array(), 0, read - 1); // java includes newlines in System.in.read, so -2 to ignore this
+            String textString = new String(text.array(), StandardCharsets.US_ASCII);
+            if (textString.equals("DISCOVERY")) {
+                startDiscoveryPhase(exponential_backoff);
+            } else if (textString.equals("DISCOVERYNOW")) {
+                startDiscoveryPhase(0);
+            } else if (textString.equals("SMALLPACKET")) {
+                packetHandling.sendSmallPacket(new SmallPacket(0, 0, 0, false, false, false, false, false));
+            } else {
+                for (int i = 0; i < read - 1; i += 28) {
+                    byte[] partial_text = read - 1 - i > 28 ? new byte[28] : new byte[read - 1 - i];
+                    System.arraycopy(text.array(), i, partial_text, 0, partial_text.length);
 //                        for (int j = 0; j < partial_text.length; j++) {
 //                            partial_text[j] = text.array()[j+i];
 //                        }
-                            // TODO @Martijn implement sliding window here, sending side
+                    // TODO @Martijn implement sliding window here, sending side
 
-                            // TODO proper sequence number
-                            // TODO last ack received als field bijhouden
-                            // TODO last seq nr sent als field bjihouden
-                            // TODO SWS bijhouden als field
-                            // todo LAR+SWS (biggest sendable packet) bijhouden als field
-                            // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
+                    // TODO proper sequence number
+                    // TODO last ack received als field bijhouden
+                    // TODO last seq nr sent als field bjihouden
+                    // TODO SWS bijhouden als field
+                    // todo LAR+SWS (biggest sendable packet) bijhouden als field
+                    // TODO hou list of booleans bij (als field) met welke packets al geACKt zijn (bij LAR increase: pop dingen aan begin en push FALSEs aan einde)
 
 
-                            boolean morePacketsFlag = read-1-i>28;
-                            int size = morePacketsFlag? 32 : read-1-i+4;
-                            packetHandling.sendPacket(new BigPacket(routing.sourceIP,0,0,false,false,false,false,true,partial_text,0,morePacketsFlag,size,0));
+                    boolean morePacketsFlag = read - 1 - i > 28;
+                    int size = morePacketsFlag ? 32 : read - 1 - i + 4;
+                    packetHandling.sendPacket(new BigPacket(routing.sourceIP, 0, 0, false, false, false, false, true, partial_text, 0, morePacketsFlag, size, 0));
 
-                        }
-                    }
                 }
             }
-
-        } catch (InterruptedException e){
-            System.exit(2);
-        } catch (IOException e){
-            System.exit(2);
-        }        
+        }
     }
 
     private void startDiscoveryPhase(int exponential_backoff) {
@@ -273,7 +237,7 @@ public class MyProtocol{
     private void startNegotiationMasterPhase() throws InterruptedException {
         setState(State.NEGOTIATION_MASTER);
         negotiatedPackets.clear();
-        Timer timer = new Timer(this.negotiation_phase_length*SHORT_PACKET_TIMESLOT, new ActionListener() {
+        Timer timer = new Timer(this.negotiation_phase_length*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -303,7 +267,7 @@ public class MyProtocol{
                 startNegotiationStrangerDonePhase();
                 return;
             } else {
-                sleep(SHORT_PACKET_TIMESLOT);
+                sleep(packetHandling.SHORT_PACKET_TIMESLOT);
             }
         }
         startWaitingForTimingStrangerPhase();
@@ -337,7 +301,7 @@ public class MyProtocol{
         SmallPacket first_packet = new SmallPacket(routing.sourceIP, routing.sourceIP, first_packet_ack_nr,true,false,true,false,true);
         packetHandling.sendSmallPacket(first_packet);
 
-        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*packetHandling.SHORT_PACKET_TIMESLOT);
         List<Integer> received_tiebreakers = new ArrayList<>();
 
         // Make list of all tiebreakers
@@ -365,14 +329,14 @@ public class MyProtocol{
             packetHandling.sendSmallPacket(promotionPacket);
             routing.highest_assigned_ip = new_ip;
             routing.updateNeighbors(new_ip);
-            sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+            sleep(route_ips.size()*packetHandling.SHORT_PACKET_TIMESLOT);
         }
         negotiatedPackets.clear();
 
         int unicast_scheme = routing.getUnicastScheme(routing.sourceIP);
         SmallPacket final_packet = new SmallPacket(routing.sourceIP,hops,unicast_scheme,true,false,true,true,true);
         packetHandling.sendSmallPacket(final_packet);
-        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*packetHandling.SHORT_PACKET_TIMESLOT);
 
         startRequestMasterPhase();
     }
@@ -423,7 +387,7 @@ public class MyProtocol{
 
         }
 
-        Timer timer = new Timer(request_phase_length*SHORT_PACKET_TIMESLOT, new ActionListener() {
+        Timer timer = new Timer(request_phase_length*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -448,7 +412,7 @@ public class MyProtocol{
             thisNodesSendTimeslot += routing.unicastRoutes.get(i).size();
         }
 
-        Timer timer = new Timer(thisNodesSendTimeslot * SHORT_PACKET_TIMESLOT, new ActionListener() {
+        Timer timer = new Timer(thisNodesSendTimeslot * packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -555,9 +519,9 @@ public class MyProtocol{
         List<Integer> route_ips = routing.getMulticastForwardingRoute(routing.sourceIP);
 
         packetHandling.sendSmallPacket(first_packet);
-        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*packetHandling.SHORT_PACKET_TIMESLOT);
         packetHandling.sendSmallPacket(second_packet);
-        sleep(route_ips.size()*SHORT_PACKET_TIMESLOT);
+        sleep(route_ips.size()*packetHandling.SHORT_PACKET_TIMESLOT);
 
         requestPackets.clear();
 
@@ -608,7 +572,7 @@ public class MyProtocol{
         }
 
         final int finalDelay_after_we_send = delay_after_we_send;
-        Timer timer = new Timer((delay_until_we_send*LONG_PACKET_TIMESLOT), new ActionListener() {
+        Timer timer = new Timer((delay_until_we_send*packetHandling.LONG_PACKET_TIMESLOT), new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -632,7 +596,7 @@ public class MyProtocol{
             } else {
                 forwardingTime = routing.getMulticastForwardingRoute(packet.sourceIP).size();
             }
-            sleep(forwardingTime * SHORT_PACKET_TIMESLOT);
+            sleep(forwardingTime * packetHandling.SHORT_PACKET_TIMESLOT);
         }
         dataPhaseSmallPacketBuffer.clear();
 
@@ -644,11 +608,11 @@ public class MyProtocol{
             } else {
                 forwardingTime = routing.getMulticastForwardingRoute(packet.sourceIP).size();
             }
-            sleep(forwardingTime * LONG_PACKET_TIMESLOT);
+            sleep(forwardingTime * packetHandling.LONG_PACKET_TIMESLOT);
         }
         dataPhaseBigPacketBuffer.clear();
 
-        Timer timer = new Timer(delay_after_we_send * LONG_PACKET_TIMESLOT, new ActionListener() {
+        Timer timer = new Timer(delay_after_we_send * packetHandling.LONG_PACKET_TIMESLOT, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent arg0) {
                 try {
@@ -1004,7 +968,7 @@ public class MyProtocol{
                                     // You have to forward this time
                                     packet.sourceIP += 1;
                                     packetHandling.sendSmallPacket(packet);
-                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                                         @Override
                                         public void actionPerformed(ActionEvent arg0) {
                                             try {
@@ -1018,7 +982,7 @@ public class MyProtocol{
                                     timer.start(); // Go go g
 
                                 } else {
-                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                                         @Override
                                         public void actionPerformed(ActionEvent arg0) {
                                             try {
@@ -1199,7 +1163,7 @@ public class MyProtocol{
                     // You have to forward this time
                     packet.destIP += 1;
                     packetHandling.sendSmallPacket(packet);
-                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops-1)*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
                             startRequestSlavePhase();
@@ -1209,7 +1173,7 @@ public class MyProtocol{
                     timer.start(); // Go go g
 
                 } else {
-                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*SHORT_PACKET_TIMESLOT, new ActionListener() {
+                    Timer timer = new Timer((routing.postNegotiationSlaveforwardingScheme.size()-hops)*packetHandling.SHORT_PACKET_TIMESLOT, new ActionListener() {
                         @Override
                         public void actionPerformed(ActionEvent arg0) {
                             startRequestSlavePhase();
@@ -1229,11 +1193,11 @@ public class MyProtocol{
 
     void detectInterference(long delay) {
         boolean interference = false;
-        if (sending) {
-            sending = false;
-            if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > SHORT_PACKET_TIMESLOT) {
+        if (packetHandling.sending) {
+            packetHandling.sending = false;
+            if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA_SHORT && delay > packetHandling.SHORT_PACKET_TIMESLOT) {
                 interference = true;
-            } else if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA && delay > LONG_PACKET_TIMESLOT) {
+            } else if (packetHandling.messagesToSend.get(0).getType() == MessageType.DATA && delay > packetHandling.LONG_PACKET_TIMESLOT) {
                 interference = true;
 
             }

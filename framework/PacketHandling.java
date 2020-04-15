@@ -14,6 +14,8 @@ public class PacketHandling {
     List<Message> messagesToSend = new ArrayList<>();
     List<Message> sentMessages = new ArrayList<>(); // TODO might overflow
     boolean sending = false;
+    public int SHORT_PACKET_TIMESLOT = 260;
+    public int LONG_PACKET_TIMESLOT = 1510;
 
     public PacketHandling(BlockingQueue<Message> sendingQueue) {
         this.sendingQueue = sendingQueue;
