@@ -1,4 +1,4 @@
-### README
+### Java reimplementation of TCP/IP
 
 Run framework/MyProtocol.java's main method to start.
 Run this method with an integer as argument to assign this node an IP address. This is useful for testing TCP and such without having to use the buggy access control / routing implementation.
